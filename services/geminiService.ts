@@ -104,46 +104,54 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
 
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const prompt = `
-    Role: Senior I/O Psychologist & Assessment Expert.
-    Task: Create a high-stakes Situational Judgment Test (SJT) and a Work Sample simulation for the role: "${jobRole}".
+    You are a Lead Assessment Center Architect. Your goal is to design a BRUTALLY REALISTIC assessment for a Senior/Lead "${jobRole}".
     Language: Russian (Strict Business Professional).
-    Context/Pain Points: "${challenges}".
+    Pain Points & Context: "${challenges}".
 
-    *** CRITICAL INSTRUCTIONS FOR SJT (4 Questions) ***
-    1. COMPLEXITY: Scenarios must be AMBIGUOUS dilemmas. Do NOT create obvious "good vs bad" situations.
-    2. CONFLICT: Each scenario must involve a conflict of values (e.g., "Speed vs Quality", "Client Demands vs Company Policy", "Team Harmony vs High Performance").
-    3. REALISM: Use the provided "Pain Points" to make scenarios specific to this job's hardest moments.
+    *** PART 1: SJT (Situational Judgment Test) - 4 Questions ***
+    Instructions:
+    1.  **High Complexity**: No simple problems. Combine multiple stressors: (e.g., "Critical Deadline" + "Conflict with Key Client" + "Team burnout").
+    2.  **Length**: Each Scenario description must be at least 3-4 sentences long (60-80 words). Detail is key.
+    3.  **The Dilemma**: There should be no obvious "right" answer. The candidate must choose between "Bad" and "Worse" or "Short-term gain" vs "Long-term pain".
+    4.  **Options Scoring**:
+        -   **2 Points (Strategic)**: A solution that addresses the root cause, balances stakeholders, and shows emotional intelligence.
+        -   **1 Point (Bureaucratic)**: A solution that follows rules strictly but ignores the human/business context. (Plausible but rigid).
+        -   **0 Points (Passive/Reactive)**: Ignoring the problem, escalating immediately to management without trying to solve it, or being aggressive.
+
+    *** PART 2: Work Sample Simulation - 1 Task ***
+    Instructions:
+    Create a detailed "Case Study" text block. Do NOT just ask a question.
+    Structure the "text" field exactly like this:
     
-    4. OPTIONS SCORING:
-       - Best Option (value: 2): Demonstrates strategic thinking, emotional intelligence, and long-term problem solving.
-       - Mediocre Option (value: 1): Strictly follows rules but lacks empathy, OR solves the immediate problem but creates a long-term issue. (Plausible but suboptimal).
-       - Worst Option (value: 0): Passive, avoidant, or escalates the conflict. (Must still be realistic behavior, not cartoonishly evil).
+    "КОНТЕКСТ: [Describe a specific project or crisis situation in 3-4 sentences].
+     
+     ВХОДНЫЕ ДАННЫЕ:
+     - [Fact 1: e.g., Budget cut by 20%]
+     - [Fact 2: e.g., Client sent an angry email: '...quote...']
+     - [Fact 3: e.g., Key employee resigned]
+     
+     ЗАДАЧА:
+     [Specific instruction: e.g., 'Write a response plan', 'Draft an email to the client', 'Prioritize these 5 tasks']"
 
-    *** CRITICAL INSTRUCTIONS FOR WORK SAMPLE (1 Task) ***
-    1. FORMAT: Do NOT ask "Describe a time when...".
-    2. SIMULATION: Create a "Case Study". Provide data, a short email text, or a list of tasks.
-    3. ACTION: Ask the candidate to perform a specific task (e.g., "Write a reply to this angry client", "Rank these 5 conflicting tasks", "Draft a short plan").
-
-    OUTPUT FORMAT:
-    Return VALID JSON ONLY. No markdown formatting (\`\`\`). No preamble.
-    Structure:
+    *** OUTPUT JSON FORMAT ***
+    Return ONLY valid JSON.
     {
       "sjtQuestions": [
         { 
           "id": "1", 
-          "text": "[Detailed Scenario Description...]", 
+          "text": "[Long Scenario Description...]", 
           "type": "single-choice", 
           "options": [
-             { "id": "a", "text": "[Action A...]", "value": 0 }, 
-             { "id": "b", "text": "[Action B...]", "value": 2 },
-             { "id": "c", "text": "[Action C...]", "value": 1 }
+             { "id": "a", "text": "[Strategic Action]", "value": 2 }, 
+             { "id": "b", "text": "[Bureaucratic Action]", "value": 1 },
+             { "id": "c", "text": "[Passive Action]", "value": 0 }
           ] 
         },
-        ... (generate 4 distinct scenarios)
+        ... (4 questions total)
       ],
       "workSampleQuestion": { 
         "id": "ws1", 
-        "text": "CASE STUDY:\n[Context/Data]\n\nTASK:\n[Specific instructions on what to write...]", 
+        "text": "КОНТЕКСТ: ... \n\nВХОДНЫЕ ДАННЫЕ: ... \n\nЗАДАЧА: ...", 
         "type": "text" 
       }
     }
