@@ -6,9 +6,7 @@ import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
 import { Brain, FileCheck, Target, ChevronRight, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Building, User, Lock, Briefcase as CaseIcon, PenTool, Settings } from 'lucide-react';
-
-// ВСТАВЬТЕ СЮДА ВАШ НОВЫЙ URL СКРИПТА
-export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec'; 
+import { SCRIPT_URL } from './services/geminiService'; // Импортируем URL из сервиса
 
 const ICONS: Record<string, React.ReactNode> = {
   intelligence: <Brain size={28} />,
@@ -205,6 +203,7 @@ export default function App() {
 
     const newResult: TestResult = {
       sectionId: sectionId as any,
+      title: sectionData.title,
       rawScore, maxScore: maxPossibleScore, percentage, answers,
       hexacoProfile, motivationProfile, validityProfile, textAnswer
     };
