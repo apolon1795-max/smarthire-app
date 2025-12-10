@@ -1,9 +1,9 @@
 
-
 import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
 // Единый источник правды для URL скрипта
 // Убедитесь, что этот URL соответствует вашему 'Web App URL' из Google Apps Script (Deployment)
+// ВАЖНО: После каждого New Deployment в Google Script ссылка может меняться, проверьте её!
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
 // Вспомогательная функция для обращения к Бэкенду
@@ -39,16 +39,8 @@ const callBackendAI = async (prompt: string, jsonMode: boolean = false): Promise
       return data.text;
     } else {
       console.error("Backend AI Error:", data.message);
-      
-      const msg = data.message || "";
-      if (msg.includes('503') || msg.includes('Overloaded')) {
-         throw new Error("Серверы AI перегружены. Попробуйте через минуту.");
-      }
-      if (msg.includes('429') || msg.includes('quota')) {
-         throw new Error("Лимит AI исчерпан. Пожалуйста, обновите скрипт или попробуйте позже.");
-      }
-      
-      throw new Error(msg || "Ошибка генерации на стороне сервера");
+      // Возвращаем сообщение об ошибке прямо от бэкенда (Yandex/Google)
+      throw new Error(data.message || "Ошибка генерации на стороне сервера");
     }
   } catch (error: any) {
     console.error("Fetch Error:", error);
@@ -97,33 +89,44 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
 
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const prompt = `
-    Role: Assessment Designer. 
-    Task: Create exactly 4 (FOUR) tough Situational Judgement Test (SJT) questions and 1 Work Sample task for the role: "${jobRole}".
-    Context/Challenges: "${challenges}".
+    Role: Expert Senior I/O Psychologist.
+    Task: Create a high-stakes, professional assessment for the role: "${jobRole}".
+    Language: Russian (Русский).
     
-    Output Format: JSON ONLY. No markdown.
-    IMPORTANT: You must generate 4 distinct scenarios in the 'sjtQuestions' array.
+    Input Context/Challenges: "${challenges}".
+
+    REQUIREMENTS FOR SJT (4 Scenarios):
+    1. CREATE COMPLEX DILEMMAS. Avoid obvious "good vs bad" answers. Situations must be ambiguous (e.g., Conflict between Policy vs. Client Satisfaction, Speed vs. Quality, Team Harmony vs. High Performance).
+    2. TONE: Professional, corporate, serious.
+    3. OPTIONS:
+       - Best (value: 2): Strategic thinking, balances multiple factors, emotionally intelligent.
+       - Mediocre (value: 1): Strictly following rules without empathy OR compromising too much. A plausible but suboptimal choice.
+       - Worst (value: 0): Passive behavior, avoiding responsibility, or escalating conflict unnecessarily (but still realistic, not cartoonishly evil).
+
+    REQUIREMENTS FOR WORK SAMPLE (1 Task):
+    - Create a specific SIMULATION TASK (Case Study).
+    - Do NOT ask generic questions like "Describe a time when...".
+    - Example tasks: "Draft an email to a furious client", "Prioritize this list of 5 urgent tasks with reasoning", "Analyze this short data set".
     
+    Output Format: JSON ONLY.
     Structure:
     {
       "sjtQuestions": [
         { 
           "id": "1", 
-          "text": "Scenario 1 description...", 
+          "text": "Detailed scenario description (3-4 sentences)...", 
           "type": "single-choice", 
           "options": [
-             { "id": "a", "text": "Bad option", "value": 0 }, 
-             { "id": "b", "text": "Good option", "value": 2 },
-             { "id": "c", "text": "Mediocre option", "value": 1 }
+             { "id": "a", "text": "Option A text...", "value": 0 }, 
+             { "id": "b", "text": "Option B text...", "value": 2 },
+             { "id": "c", "text": "Option C text...", "value": 1 }
           ] 
         },
-        { "id": "2", "text": "Scenario 2...", ... },
-        { "id": "3", "text": "Scenario 3...", ... },
-        { "id": "4", "text": "Scenario 4...", ... }
+        ... (4 questions total)
       ],
       "workSampleQuestion": { 
         "id": "ws1", 
-        "text": "Describe a practical task where they need to write a text answer...", 
+        "text": "Detailed Case Study / Simulation Task instructions...", 
         "type": "text" 
       }
     }
