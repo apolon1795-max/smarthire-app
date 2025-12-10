@@ -62,18 +62,33 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
   }).join('\n');
 
   const prompt = `
-    Ты профессиональный HR-директор. Проанализируй результаты кандидата.
-    Кандидат: ${candidateInfo?.name || "Не указан"}, Позиция: ${candidateInfo?.role || "Не указана"}.
+    Role: Expert HR Director & Psychologist.
+    Task: Create a final candidate report.
+    Language: Russian (Business Professional).
+    Candidate: ${candidateInfo?.name || "Candidate"}, Position: ${candidateInfo?.role || "Applicant"}.
     
-    Результаты тестов:
+    Test Results:
     ${resultsText}
     
-    Задача: Напиши краткое резюме (до 150 слов) в формате HTML.
-    Структура:
-    <h3>💡 Ключевые инсайты</h3>
-    <p>...текст...</p>
-    <h3>⚠️ На что обратить внимание</h3>
-    <ul><li>...риск 1...</li><li>...риск 2...</li></ul>
+    INSTRUCTIONS:
+    1. Write a professional summary (max 200 words).
+    2. Use HTML tags for formatting: <h3> for headers, <b> for emphasis, <ul>/<li> for lists.
+    3. Structure:
+       <h3>💡 Общий вывод</h3>
+       <p>[Analysis of fit for the role based on profile]</p>
+       
+       <h3>🚀 Сильные стороны</h3>
+       <ul>
+         <li>[Point 1 based on high scores]</li>
+         <li>[Point 2]</li>
+       </ul>
+
+       <h3>⚠️ Зоны риска</h3>
+       <ul>
+         <li>[Potential issues based on low scores or motivation mismatches]</li>
+       </ul>
+
+    IMPORTANT: Return ONLY the HTML code. Do NOT use markdown code blocks (like \`\`\`html).
   `;
 
   try {
@@ -89,44 +104,46 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
 
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const prompt = `
-    Role: Expert Senior I/O Psychologist.
-    Task: Create a high-stakes, professional assessment for the role: "${jobRole}".
-    Language: Russian (Русский).
-    
-    Input Context/Challenges: "${challenges}".
+    Role: Senior I/O Psychologist & Assessment Expert.
+    Task: Create a high-stakes Situational Judgment Test (SJT) and a Work Sample simulation for the role: "${jobRole}".
+    Language: Russian (Strict Business Professional).
+    Context/Pain Points: "${challenges}".
 
-    REQUIREMENTS FOR SJT (4 Scenarios):
-    1. CREATE COMPLEX DILEMMAS. Avoid obvious "good vs bad" answers. Situations must be ambiguous (e.g., Conflict between Policy vs. Client Satisfaction, Speed vs. Quality, Team Harmony vs. High Performance).
-    2. TONE: Professional, corporate, serious.
-    3. OPTIONS:
-       - Best (value: 2): Strategic thinking, balances multiple factors, emotionally intelligent.
-       - Mediocre (value: 1): Strictly following rules without empathy OR compromising too much. A plausible but suboptimal choice.
-       - Worst (value: 0): Passive behavior, avoiding responsibility, or escalating conflict unnecessarily (but still realistic, not cartoonishly evil).
-
-    REQUIREMENTS FOR WORK SAMPLE (1 Task):
-    - Create a specific SIMULATION TASK (Case Study).
-    - Do NOT ask generic questions like "Describe a time when...".
-    - Example tasks: "Draft an email to a furious client", "Prioritize this list of 5 urgent tasks with reasoning", "Analyze this short data set".
+    *** CRITICAL INSTRUCTIONS FOR SJT (4 Questions) ***
+    1. COMPLEXITY: Scenarios must be AMBIGUOUS dilemmas. Do NOT create obvious "good vs bad" situations.
+    2. CONFLICT: Each scenario must involve a conflict of values (e.g., "Speed vs Quality", "Client Demands vs Company Policy", "Team Harmony vs High Performance").
+    3. REALISM: Use the provided "Pain Points" to make scenarios specific to this job's hardest moments.
     
-    Output Format: JSON ONLY.
+    4. OPTIONS SCORING:
+       - Best Option (value: 2): Demonstrates strategic thinking, emotional intelligence, and long-term problem solving.
+       - Mediocre Option (value: 1): Strictly follows rules but lacks empathy, OR solves the immediate problem but creates a long-term issue. (Plausible but suboptimal).
+       - Worst Option (value: 0): Passive, avoidant, or escalates the conflict. (Must still be realistic behavior, not cartoonishly evil).
+
+    *** CRITICAL INSTRUCTIONS FOR WORK SAMPLE (1 Task) ***
+    1. FORMAT: Do NOT ask "Describe a time when...".
+    2. SIMULATION: Create a "Case Study". Provide data, a short email text, or a list of tasks.
+    3. ACTION: Ask the candidate to perform a specific task (e.g., "Write a reply to this angry client", "Rank these 5 conflicting tasks", "Draft a short plan").
+
+    OUTPUT FORMAT:
+    Return VALID JSON ONLY. No markdown formatting (\`\`\`). No preamble.
     Structure:
     {
       "sjtQuestions": [
         { 
           "id": "1", 
-          "text": "Detailed scenario description (3-4 sentences)...", 
+          "text": "[Detailed Scenario Description...]", 
           "type": "single-choice", 
           "options": [
-             { "id": "a", "text": "Option A text...", "value": 0 }, 
-             { "id": "b", "text": "Option B text...", "value": 2 },
-             { "id": "c", "text": "Option C text...", "value": 1 }
+             { "id": "a", "text": "[Action A...]", "value": 0 }, 
+             { "id": "b", "text": "[Action B...]", "value": 2 },
+             { "id": "c", "text": "[Action C...]", "value": 1 }
           ] 
         },
-        ... (4 questions total)
+        ... (generate 4 distinct scenarios)
       ],
       "workSampleQuestion": { 
         "id": "ws1", 
-        "text": "Detailed Case Study / Simulation Task instructions...", 
+        "text": "CASE STUDY:\n[Context/Data]\n\nTASK:\n[Specific instructions on what to write...]", 
         "type": "text" 
       }
     }
@@ -134,7 +151,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
   
   try {
     const jsonString = await callBackendAI(prompt, true);
-    // Очистка от markdown блоков, если они есть
+    // Очистка от markdown блоков, если они есть (Yandex иногда добавляет их)
     const cleanJson = jsonString.replace(/```json/g, "").replace(/```/g, "").trim();
     return JSON.parse(cleanJson);
   } catch (error) {
