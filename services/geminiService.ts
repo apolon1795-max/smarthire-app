@@ -1,4 +1,5 @@
 
+
 import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
 // Единый источник правды для URL скрипта
@@ -92,10 +93,12 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const prompt = `
     Role: Assessment Designer. 
-    Task: Create exactly 4 tough Situational Judgement Test (SJT) questions and 1 Work Sample task for the role: "${jobRole}".
+    Task: Create exactly 4 (FOUR) tough Situational Judgement Test (SJT) questions and 1 Work Sample task for the role: "${jobRole}".
     Context/Challenges: "${challenges}".
     
     Output Format: JSON ONLY. No markdown.
+    IMPORTANT: You must generate 4 distinct scenarios in the 'sjtQuestions' array.
+    
     Structure:
     {
       "sjtQuestions": [
@@ -109,9 +112,9 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
              { "id": "c", "text": "Mediocre option", "value": 1 }
           ] 
         },
-        { "id": "2", ... },
-        { "id": "3", ... },
-        { "id": "4", ... }
+        { "id": "2", "text": "Scenario 2...", ... },
+        { "id": "3", "text": "Scenario 3...", ... },
+        { "id": "4", "text": "Scenario 4...", ... }
       ],
       "workSampleQuestion": { 
         "id": "ws1", 
