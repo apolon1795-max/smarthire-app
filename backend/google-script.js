@@ -1,10 +1,41 @@
 
-// === ВАЖНО: ВСТАВЬТЕ СЮДА ВАШ ID ТАБЛИЦЫ ===
-var SHEET_ID = "1lt16LNgMK_vU_CdXBR7AV3FZ0g8ZT6GFq84M5K0oGoQ";
+// ==========================================
+// ⚠️ ВАЖНО ДЛЯ GITHUB
+// Это безопасная версия файла для репозитория.
+// В редакторе Google Apps Script (script.google.com) вы должны вручную
+// вписать реальные ключи вместо строк ниже.
+// ==========================================
 
-// === ВАЖНО: ВСТАВЬТЕ СЮДА ВАШ API KEY ОТ GEMINI ===
-// Получите ключ здесь: https://aistudio.google.com/app/apikey
-var GEMINI_API_KEY = "ВСТАВЬТЕ_СЮДА_ВАШ_API_KEY_И_ОБНОВИТЕ_ДЕПЛОЙ"; 
+var SHEET_ID = "ВСТАВЬТЕ_ID_ТАБЛИЦЫ_СЮДА"; 
+var GEMINI_API_KEY = "ВСТАВЬТЕ_ВАШ_API_KEY_СЮДА";
+
+// ==========================================
+
+// Вспомогательная функция для очистки HTML перед записью в таблицу
+function cleanHtmlForSheet(html) {
+  if (!html) return "";
+  
+  var text = html
+    // Заменяем заголовки на ВЕРХНИЙ РЕГИСТР с отступами
+    .replace(/<h3>/gi, '\n\n=== ')
+    .replace(/<\/h3>/gi, ' ===\n')
+    // Заменяем элементы списка на жирные точки
+    .replace(/<li>/gi, '• ')
+    .replace(/<\/li>/gi, '\n')
+    // Заменяем параграфы и переносы
+    .replace(/<p>/gi, '')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Удаляем все остальные теги (<div...>, <b>, <ul> и т.д.)
+    .replace(/<[^>]+>/g, '')
+    // Убираем лишние HTML сущности
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"');
+
+  // Убираем множественные переносы строк (больше двух подряд)
+  return text.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+}
 
 // 1. ОБРАБОТКА GET ЗАПРОСОВ (Получение теста по ID)
 function doGet(e) {
@@ -13,6 +44,13 @@ function doGet(e) {
   
   try {
     var jobId = e.parameter.jobId;
+    
+    // Simple Health Check
+    if (e.parameter.ping) {
+       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Pong", time: new Date().toString() }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (!jobId) {
       return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "No jobId provided" }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -66,17 +104,17 @@ function doPost(e) {
     var ss = SpreadsheetApp.openById(SHEET_ID);
 
     // --- СЦЕНАРИЙ: ГЕНЕРАЦИЯ AI (ПРОКСИ) ---
-    // Это позволяет обходить блокировки по IP, так как запрос делает сервер Google
     if (data.action === "GENERATE_AI") {
-      if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("ВСТАВЬТЕ") || GEMINI_API_KEY.length < 10) {
-         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "API Key is missing in Google Script. Please update and redeploy." }))
+      // Проверка наличия ключа (для безопасности в скрипте)
+      if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("ВСТАВЬТЕ")) {
+         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Backend Error: API Key not configured in Google Script" }))
         .setMimeType(ContentService.MimeType.JSON);
       }
       
       var aiResponse = callGeminiAPI(data.prompt, data.jsonMode);
       
       if (aiResponse.error) {
-         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: aiResponse.error }))
+         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Gemini API Error: " + aiResponse.error }))
           .setMimeType(ContentService.MimeType.JSON);
       }
 
@@ -117,7 +155,9 @@ function doPost(e) {
         ]);
       }
 
-      var cleanAnalysis = (data.aiAnalysis || "").substring(0, 49000);
+      // ОЧИСТКА HTML ПЕРЕД ЗАПИСЬЮ
+      var rawAnalysis = data.aiAnalysis || "";
+      var cleanText = cleanHtmlForSheet(rawAnalysis).substring(0, 49000);
 
       var row = [
         new Date(),                
@@ -131,7 +171,7 @@ function doPost(e) {
         data.topDrivers.map(function(d){ return d.name }).join(", "),
         data.sjtScore || 0,        
         data.workSampleAnswer || "N/A", 
-        cleanAnalysis            
+        cleanText // Записываем очищенный текст
       ];
 
       sheet.appendRow(row);
@@ -140,7 +180,7 @@ function doPost(e) {
     }
 
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Script Error: " + err.toString() }))
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Script Critical Error: " + err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
     lock.releaseLock();
@@ -163,7 +203,7 @@ function callGeminiAPI(prompt, jsonMode) {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify(payload),
-    muteHttpExceptions: true // Важно, чтобы получить текст ошибки от Google
+    muteHttpExceptions: true
   };
   
   try {
@@ -172,16 +212,16 @@ function callGeminiAPI(prompt, jsonMode) {
     var json = JSON.parse(response.getContentText());
     
     if (responseCode !== 200) {
-      return { error: "Gemini API Error (" + responseCode + "): " + (json.error ? json.error.message : "Unknown error") };
+      return { error: "(" + responseCode + ") " + (json.error ? json.error.message : "Unknown error") };
     }
     
     if (json.candidates && json.candidates.length > 0 && json.candidates[0].content && json.candidates[0].content.parts) {
        return { text: json.candidates[0].content.parts[0].text };
     }
     
-    return { error: "No content generated in response" };
+    return { error: "Empty response from Gemini model" };
     
   } catch (e) {
-    return { error: "Fetch Exception: " + e.toString() };
+    return { error: "UrlFetchApp Exception: " + e.toString() };
   }
 }
