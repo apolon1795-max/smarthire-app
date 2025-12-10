@@ -16,28 +16,21 @@ function cleanHtmlForSheet(html) {
   if (!html) return "";
   
   var text = html
-    // Заменяем заголовки на ВЕРХНИЙ РЕГИСТР с отступами
     .replace(/<h3>/gi, '\n\n=== ')
     .replace(/<\/h3>/gi, ' ===\n')
-    // Заменяем элементы списка на жирные точки
     .replace(/<li>/gi, '• ')
     .replace(/<\/li>/gi, '\n')
-    // Заменяем параграфы и переносы
     .replace(/<p>/gi, '')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    // Удаляем все остальные теги (<div...>, <b>, <ul> и т.д.)
     .replace(/<[^>]+>/g, '')
-    // Убираем лишние HTML сущности
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"');
 
-  // Убираем множественные переносы строк (больше двух подряд)
   return text.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 }
 
-// 1. ОБРАБОТКА GET ЗАПРОСОВ (Получение теста по ID)
 function doGet(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(10000);
@@ -45,9 +38,8 @@ function doGet(e) {
   try {
     var jobId = e.parameter.jobId;
     
-    // Simple Health Check
     if (e.parameter.ping) {
-       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Pong", time: new Date().toString() }))
+       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Pong" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -89,7 +81,6 @@ function doGet(e) {
   }
 }
 
-// 2. ОБРАБОТКА POST ЗАПРОСОВ
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(10000);
@@ -103,18 +94,17 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents);
     var ss = SpreadsheetApp.openById(SHEET_ID);
 
-    // --- СЦЕНАРИЙ: ГЕНЕРАЦИЯ AI (ПРОКСИ) ---
     if (data.action === "GENERATE_AI") {
-      // Проверка наличия ключа (для безопасности в скрипте)
       if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("ВСТАВЬТЕ")) {
-         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Backend Error: API Key not configured in Google Script" }))
+         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Backend Error: API Key not configured" }))
         .setMimeType(ContentService.MimeType.JSON);
       }
       
-      var aiResponse = callGeminiAPI(data.prompt, data.jsonMode);
+      // Вызываем умную функцию с перебором моделей
+      var aiResponse = callGeminiSmart(data.prompt, data.jsonMode);
       
       if (aiResponse.error) {
-         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Gemini API Error: " + aiResponse.error }))
+         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "All AI models failed: " + aiResponse.error }))
           .setMimeType(ContentService.MimeType.JSON);
       }
 
@@ -122,82 +112,70 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // --- СЦЕНАРИЙ: СОХРАНЕНИЕ НОВОЙ ВАКАНСИИ (HR) ---
     if (data.action === "SAVE_CONFIG") {
       var configSheet = ss.getSheetByName("Configs");
       if (!configSheet) {
         configSheet = ss.insertSheet("Configs");
         configSheet.appendRow(["Job ID", "Job Title", "JSON Config", "Date Created"]);
       }
-      
       var newJobId = data.jobId || "JOB-" + Math.floor(Math.random() * 1000000);
-      
-      configSheet.appendRow([
-        newJobId,
-        data.jobTitle,
-        JSON.stringify(data.config),
-        new Date()
-      ]);
-      
+      configSheet.appendRow([newJobId, data.jobTitle, JSON.stringify(data.config), new Date()]);
       return ContentService.createTextOutput(JSON.stringify({ status: "success", jobId: newJobId }))
         .setMimeType(ContentService.MimeType.JSON);
     }
-
-    // --- СЦЕНАРИЙ: СОХРАНЕНИЕ РЕЗУЛЬТАТА КАНДИДАТА ---
     else {
       var sheet = ss.getSheetByName("Data");
       if (!sheet) {
         sheet = ss.insertSheet("Data");
-        sheet.appendRow([
-          "Дата", "ФИО", "Вакансия", "Статус", "Анти-Фейк",
-          "IQ Балл", "Надежность", "Эмоц. уст.", 
-          "Топ Мотиваторы", "SJT Балл", "Work Sample Ответ", "AI Анализ"
-        ]);
+        sheet.appendRow(["Дата", "ФИО", "Вакансия", "Статус", "Анти-Фейк", "IQ Балл", "Надежность", "Эмоц. уст.", "Топ Мотиваторы", "SJT Балл", "Work Sample Ответ", "AI Анализ"]);
       }
-
-      // ОЧИСТКА HTML ПЕРЕД ЗАПИСЬЮ
       var rawAnalysis = data.aiAnalysis || "";
       var cleanText = cleanHtmlForSheet(rawAnalysis).substring(0, 49000);
-
       var row = [
-        new Date(),                
-        data.candidateName,        
-        data.candidateRole,        
-        data.statusText,
-        data.antiFakeStatus || "N/A",
-        data.iqScore,              
-        data.reliability,          
-        data.emotionality,         
-        data.topDrivers.map(function(d){ return d.name }).join(", "),
-        data.sjtScore || 0,        
-        data.workSampleAnswer || "N/A", 
-        cleanText // Записываем очищенный текст
+        new Date(), data.candidateName, data.candidateRole, data.statusText, data.antiFakeStatus || "N/A",
+        data.iqScore, data.reliability, data.emotionality, 
+        data.topDrivers ? data.topDrivers.map(function(d){ return d.name }).join(", ") : "",
+        data.sjtScore || 0, data.workSampleAnswer || "N/A", cleanText
       ];
-
       sheet.appendRow(row);
       return ContentService.createTextOutput(JSON.stringify({ status: "success" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
-
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Script Critical Error: " + err.toString() }))
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Script Error: " + err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   } finally {
     lock.releaseLock();
   }
 }
 
-function callGeminiAPI(prompt, jsonMode) {
-  var model = "gemini-2.5-flash";
-  var url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + GEMINI_API_KEY;
-  
-  var payload = {
-    contents: [{ parts: [{ text: prompt }] }]
-  };
-  
-  if (jsonMode) {
-    payload.generationConfig = { responseMimeType: "application/json" };
+// Умная функция: пробует 2.5, если ошибка -> пробует 1.5
+function callGeminiSmart(prompt, jsonMode) {
+  // Список моделей по порядку
+  var models = ["gemini-2.5-flash", "gemini-1.5-flash"];
+  var lastError = "";
+
+  for (var i = 0; i < models.length; i++) {
+    var modelName = models[i];
+    try {
+      var result = tryModel(modelName, prompt, jsonMode);
+      if (result && result.text) {
+        return result; // Успех!
+      }
+    } catch (e) {
+      lastError = e.toString();
+      console.log("Model " + modelName + " failed: " + lastError);
+    }
+    // Если ошибка, цикл продолжится со следующей моделью
   }
+  
+  return { error: "Failed to generate with any model. Last: " + lastError };
+}
+
+function tryModel(model, prompt, jsonMode) {
+  var url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + GEMINI_API_KEY;
+  var payload = { contents: [{ parts: [{ text: prompt }] }] };
+  if (jsonMode) { payload.generationConfig = { responseMimeType: "application/json" }; }
 
   var options = {
     method: 'post',
@@ -205,23 +183,15 @@ function callGeminiAPI(prompt, jsonMode) {
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
-  
-  try {
-    var response = UrlFetchApp.fetch(url, options);
-    var responseCode = response.getResponseCode();
-    var json = JSON.parse(response.getContentText());
-    
-    if (responseCode !== 200) {
-      return { error: "(" + responseCode + ") " + (json.error ? json.error.message : "Unknown error") };
-    }
-    
-    if (json.candidates && json.candidates.length > 0 && json.candidates[0].content && json.candidates[0].content.parts) {
-       return { text: json.candidates[0].content.parts[0].text };
-    }
-    
-    return { error: "Empty response from Gemini model" };
-    
-  } catch (e) {
-    return { error: "UrlFetchApp Exception: " + e.toString() };
+
+  var response = UrlFetchApp.fetch(url, options);
+  var code = response.getResponseCode();
+  var text = response.getContentText();
+
+  if (code === 200) {
+    var json = JSON.parse(text);
+    return { text: json.candidates[0].content.parts[0].text };
+  } else {
+    throw new Error("HTTP " + code + ": " + text);
   }
 }
