@@ -155,17 +155,36 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onRes
     };
 
     try {
-      await fetch(scriptUrl, {
+      // Используем text/plain чтобы избежать Preflight CORS, но при этом получить ответ
+      const response = await fetch(scriptUrl, {
         method: 'POST',
-        mode: 'no-cors', 
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
+      }
       
-      setUploadStatus('success');
-    } catch (err) {
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch(e) {
+        throw new Error("Invalid JSON response from server");
+      }
+
+      if (data.status === 'success') {
+        setUploadStatus('success');
+      } else {
+        console.error("Script error:", data.message);
+        setUploadStatus('error');
+        alert("Ошибка сохранения: " + (data.message || "Неизвестная ошибка"));
+      }
+    } catch (err: any) {
       console.error("Fetch error:", err);
       setUploadStatus('error');
+      alert("Ошибка сети. Проверьте консоль.");
     } finally {
       setIsUploading(false);
     }
