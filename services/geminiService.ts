@@ -1,4 +1,5 @@
 
+
 import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
 // Единый источник правды для URL скрипта
@@ -38,6 +39,10 @@ const callBackendAI = async (prompt: string, jsonMode: boolean = false): Promise
       return data.text;
     } else {
       console.error("Backend AI Error:", data.message);
+      // Улучшаем сообщение для пользователя
+      if (data.message.includes('503') || data.message.includes('Overloaded')) {
+         throw new Error("Сервер AI перегружен. Пожалуйста, попробуйте еще раз через минуту.");
+      }
       throw new Error(data.message || "Ошибка генерации на стороне сервера");
     }
   } catch (error: any) {
@@ -80,7 +85,7 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     console.warn("AI generation failed:", e);
     return `<div style='color:#f87171; background:rgba(255,0,0,0.1); padding:10px; border-radius:8px;'>
       <strong>Ошибка AI анализа:</strong> ${e.message}
-      <br/><small>Убедитесь, что вы обновили Google Script (New Deployment).</small>
+      <br/><small>Если ошибка 503 - просто нажмите "Сохранить", данные запишутся без AI комментария.</small>
     </div>`;
   }
 };
