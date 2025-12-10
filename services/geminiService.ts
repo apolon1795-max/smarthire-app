@@ -1,153 +1,126 @@
-import { GoogleGenAI } from "@google/genai";
+
 import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
-// === CORRECT API KEY HANDLING FOR VITE ===
-// This checks import.meta.env first (Vite), then process.env (Legacy)
-const getApiKey = () => {
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
-    return import.meta.env.VITE_API_KEY;
+// Единый источник правды для URL скрипта
+// Убедитесь, что этот URL соответствует вашему 'Web App URL' из Google Apps Script (Deployment)
+export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
+
+// Вспомогательная функция для обращения к Бэкенду
+const callBackendAI = async (prompt: string, jsonMode: boolean = false): Promise<string> => {
+  try {
+    const response = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      // Используем text/plain чтобы избежать Preflight CORS запросов, которые GAS не любит
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'GENERATE_AI',
+        prompt: prompt,
+        jsonMode: jsonMode
+      })
+    });
+    
+    const text = await response.text();
+    
+    // Проверка: Если Google вернул HTML страницу ошибки (например "Script not found" или "Login required")
+    if (text.trim().startsWith('<')) {
+        console.error("GAS Error HTML:", text);
+        throw new Error("Ошибка доступа к скрипту Google. Возможно, вы не обновили 'Deployment' (Новая версия) или ссылка устарела.");
+    }
+
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (e) {
+        throw new Error("Некорректный ответ от сервера. Проверьте логи в Google Apps Script.");
+    }
+    
+    if (data.status === 'success') {
+      return data.text;
+    } else {
+      console.error("Backend AI Error:", data.message);
+      throw new Error(data.message || "Ошибка генерации на стороне сервера");
+    }
+  } catch (error: any) {
+    console.error("Fetch Error:", error);
+    throw new Error(error.message || "Ошибка сети. Проверьте подключение к интернету.");
   }
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-    return process.env.API_KEY;
-  }
-  return '';
 };
 
-const apiKey = getApiKey();
-// Debug Log to help you verify deployment
-console.log("Gemini API Key Available:", !!apiKey); 
-
-const ai = new GoogleGenAI({ apiKey: apiKey });
-
-// --- CANDIDATE PROFILE GENERATION (EXISTING) ---
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
-  if (!apiKey) {
-    return "<p class='text-red-400'>API Key отсутствует. Проверьте настройки VITE_API_KEY на хостинге.</p>";
-  }
-
-  // Get Scores
-  const getFactorScore = (code: string) => {
-    const personalityResult = results.find(r => r.sectionId === 'conscientiousness');
-    const factor = personalityResult?.hexacoProfile?.find(f => f.code === code);
-    return factor ? factor.average.toFixed(1) : "N/A";
-  };
-
-  const getMotivationSummary = () => {
-     const motResult = results.find(r => r.sectionId === 'motivation');
-     if (!motResult || !motResult.motivationProfile) return "Нет данных";
-     return motResult.motivationProfile.topDrivers.map(d => `${d.name} (${d.score})`).join(', ');
-  };
-
-  const sjtResult = results.find(r => r.sectionId === 'sjt');
-  const workSampleResult = results.find(r => r.sectionId === 'work_sample');
-  
-  const sjtScore = sjtResult ? sjtResult.rawScore : 'N/A';
-  const workSampleAnswer = workSampleResult ? workSampleResult.textAnswer : 'Нет ответа';
-
-  const personalityResult = results.find(r => r.sectionId === 'conscientiousness');
-  const validity = personalityResult?.validityProfile;
-  
-  let validityContext = "";
-  if (validity) {
-    if (!validity.attentionPassed) {
-      validityContext = `ВНИМАНИЕ: КАНДИДАТ ПРОВАЛИЛ ТЕСТ НА ВНИМАТЕЛЬНОСТЬ.`;
-    } else if (validity.lieScore >= 4) {
-      validityContext = `ПРЕДУПРЕЖДЕНИЕ: Высокая социальная желательность (${validity.lieScore}/5).`;
-    } else {
-      validityContext = `Валидность в норме.`;
+  // Формирование промпта для анализа
+  const resultsText = results.map(r => {
+    let details = '';
+    if (r.sectionId === 'conscientiousness') {
+       details = ` (HEXACO: ${r.hexacoProfile?.map(h => `${h.code}=${h.average}`).join(', ')})`;
     }
-  }
-
-  const iqResult = results.find(r => r.sectionId === 'intelligence');
-  const iqScore = iqResult ? iqResult.rawScore : 0;
-  
-  const candidateContext = candidateInfo 
-    ? `ФИО: ${candidateInfo.name}, Возраст: ${candidateInfo.age}, Вакансия: ${candidateInfo.role}`
-    : "Данные кандидата не указаны";
+    if (r.sectionId === 'motivation') {
+       details = ` (Drivers: ${r.motivationProfile?.topDrivers.map(d => d.name).join(', ')})`;
+    }
+    return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
+  }).join('\n');
 
   const prompt = `
-    Ты профессиональный HR-директор SmartHire. Составь "Паспорт кандидата" (HTML).
+    Ты профессиональный HR-директор. Проанализируй результаты кандидата.
+    Кандидат: ${candidateInfo?.name || "Не указан"}, Позиция: ${candidateInfo?.role || "Не указана"}.
     
-    Кандидат: ${candidateContext}
-    Валидность: ${validityContext}
-    IQ: ${iqScore}/12.
-    HEXACO: H:${getFactorScore('H')}, C:${getFactorScore('C')}, E:${getFactorScore('E')}, X:${getFactorScore('X')}.
-    Мотивация: ${getMotivationSummary()}
-    SJT Балл: ${sjtScore}.
-    Work Sample Ответ: "${workSampleAnswer}" (Оцени качество).
+    Результаты тестов:
+    ${resultsText}
     
-    ИНСТРУКЦИЯ:
-    Верни чистый HTML (без markdown). Текст белый/светлый для темной темы.
+    Задача: Напиши краткое резюме (до 150 слов) в формате HTML.
     Структура:
-    1. Итог (Таблица со статусом GREEN/YELLOW/RED).
-    2. Анализ Work Sample (Рецензия).
-    3. Сильные стороны и Риски.
-    4. План адаптации (Таблица 30/60/90).
+    <h3>💡 Ключевые инсайты</h3>
+    <p>...текст...</p>
+    <h3>⚠️ На что обратить внимание</h3>
+    <ul><li>...риск 1...</li><li>...риск 2...</li></ul>
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-    return (response.text || "").replace(/```html/g, "").replace(/```/g, "");
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    return "ОШИБКА ГЕНЕРАЦИИ AI";
+    return await callBackendAI(prompt, false);
+  } catch (e: any) {
+    console.warn("AI generation failed:", e);
+    return `<div style='color:#f87171; background:rgba(255,0,0,0.1); padding:10px; border-radius:8px;'>
+      <strong>Ошибка AI анализа:</strong> ${e.message}
+      <br/><small>Убедитесь, что вы обновили Google Script (New Deployment).</small>
+    </div>`;
   }
 };
 
-// --- HR BUILDER GENERATION ---
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
-  if (!apiKey) {
-    console.error("API Key missing for generation");
-    return null;
-  }
-
   const prompt = `
-    Role: Senior Assessment Designer.
-    Task: Create a Situation Judgment Test (SJT) and Work Sample for: "${jobRole}".
-    Context: "${challenges}".
-
-    RULES FOR SJT:
-    1. **DIFFICULT DILEMMAS**: No obvious answers. Create situations where 2 options look good, but one is strategic.
-    2. **REALISTIC DISTRACTORS**: Wrong answers should sound like typical junior mistakes, not jokes.
-    3. **SCORING**: 2 points (Best), 1 point (Okay), 0 points (Bad).
-
-    OUTPUT JSON ONLY:
+    Role: Assessment Designer. 
+    Task: Create a tough Situational Judgement Test (SJT) question and a Work Sample task for the role: "${jobRole}".
+    Context/Challenges: "${challenges}".
+    
+    Output Format: JSON ONLY. No markdown.
+    Structure:
     {
       "sjtQuestions": [
-        {
-          "id": "sjt_1",
-          "text": "Detailed Scenario (3-4 sentences)...",
-          "type": "scenario",
+        { 
+          "id": "1", 
+          "text": "Describe a complex scenario related to the challenges...", 
+          "type": "single-choice", 
           "options": [
-            { "id": "a", "text": "Option A", "value": 0 }, 
-            { "id": "b", "text": "Option B", "value": 2 },
-            { "id": "c", "text": "Option C", "value": 1 },
-            { "id": "d", "text": "Option D", "value": 0 }
-          ]
-        },
-        ... (Generate 4 scenarios)
+             { "id": "a", "text": "Bad option", "value": 0 }, 
+             { "id": "b", "text": "Good option", "value": 2 },
+             { "id": "c", "text": "Mediocre option", "value": 1 }
+          ] 
+        }
       ],
-      "workSampleQuestion": {
-        "id": "work_sample_1",
-        "text": "Specific instructions for the task...",
-        "type": "text"
+      "workSampleQuestion": { 
+        "id": "ws1", 
+        "text": "Describe a practical task where they need to write a text answer...", 
+        "type": "text" 
       }
     }
-    Language: Russian.
   `;
-
+  
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: { responseMimeType: 'application/json' }
-    });
-    return JSON.parse(response.text || "{}");
+    const jsonString = await callBackendAI(prompt, true);
+    // Очистка от markdown блоков, если они есть
+    const cleanJson = jsonString.replace(/```json/g, "").replace(/```/g, "").trim();
+    return JSON.parse(cleanJson);
   } catch (error) {
-    console.error("Generation Error:", error);
-    return null;
+    console.error("Custom Question Gen Error:", error);
+    throw error;
   }
 };
