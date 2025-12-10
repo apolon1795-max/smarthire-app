@@ -1,16 +1,19 @@
 
 // ==========================================
-// ⚠️ ВАЖНО ДЛЯ GITHUB
-// Это безопасная версия файла для репозитория.
-// В редакторе Google Apps Script (script.google.com) вы должны вручную
-// вписать реальные ключи вместо строк ниже.
+// КОД ДЛЯ GOOGLE APPS SCRIPT (YANDEX GPT VERSION)
+// ВНИМАНИЕ: Это версия для репозитория.
+// В редакторе Google Apps Script (script.google.com) вставьте РЕАЛЬНЫЕ ключи.
 // ==========================================
 
-var SHEET_ID = "ВСТАВЬТЕ_ID_ТАБЛИЦЫ_СЮДА"; 
-var GEMINI_API_KEY = "ВСТАВЬТЕ_ВАШ_API_KEY_СЮДА";
+// Ваши данные для Google Таблицы
+var SHEET_ID = "ВСТАВЬТЕ_ВАШ_ID_ТАБЛИЦЫ"; 
+
+// Ваши данные для YandexGPT (Yandex Cloud)
+// Инструкция: https://cloud.yandex.ru/docs/yandexgpt/quickstart
+var YANDEX_API_KEY = "ВСТАВЬТЕ_ВАШ_YANDEX_API_KEY"; 
+var YANDEX_FOLDER_ID = "ВСТАВЬТЕ_ВАШ_YANDEX_FOLDER_ID"; 
 
 // ==========================================
-
 
 // Функция очистки HTML от тегов для красивого вида в таблице
 function cleanHtmlForSheet(html) {
@@ -24,12 +27,11 @@ function cleanHtmlForSheet(html) {
     .replace(/<p>/gi, '')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '') // Удалить все остальные теги
+    .replace(/<[^>]+>/g, '') 
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"');
 
-  // Убираем лишние пустые строки
   return text.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 }
 
@@ -40,9 +42,8 @@ function doGet(e) {
   try {
     var jobId = e.parameter.jobId;
     
-    // Пинг
     if (e.parameter.ping) {
-       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Pong" }))
+       return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Pong Yandex" }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -97,9 +98,11 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents);
     var ss = SpreadsheetApp.openById(SHEET_ID);
 
-    // === ЛОГИКА ГЕНЕРАЦИИ AI ===
+    // === ЛОГИКА ГЕНЕРАЦИИ (YANDEX GPT) ===
     if (data.action === "GENERATE_AI") {
-      var aiResponse = callGeminiSmart(data.prompt, data.jsonMode);
+      var fullPrompt = data.prompt;
+      
+      var aiResponse = callYandexGPT(fullPrompt, data.jsonMode);
       
       if (aiResponse.error) {
          return ContentService.createTextOutput(JSON.stringify({ status: "error", message: aiResponse.error }))
@@ -152,80 +155,66 @@ function doPost(e) {
   }
 }
 
-// Умная функция с Fallback (сменой моделей) при лимитах
-function callGeminiSmart(prompt, jsonMode) {
-  // Порядок моделей:
-  // 1. 2.5-flash (Самая умная, но частые лимиты)
-  // 2. 1.5-flash (Быстрая, стабильная)
-  // 3. 1.5-pro (Мощная, если flash не доступен)
-  var models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
-  var lastError = "";
-
-  // Проходим по списку моделей
-  for (var i = 0; i < models.length; i++) {
-    var modelName = models[i];
-    
-    // Попытка вызвать конкретную модель (до 3 раз)
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      try {
-        var result = tryModel(modelName, prompt, jsonMode);
-        if (result && result.text) {
-          return result; // Успех!
-        }
-      } catch (e) {
-        lastError = e.toString();
-        
-        // 1. Ошибка 429 (QUOTA EXCEEDED) -> СРАЗУ меняем модель
-        if (lastError.indexOf("429") !== -1 || lastError.indexOf("quota") !== -1) {
-           console.log("Model " + modelName + " quota exceeded. Switching to next model...");
-           break; // Выход из внутреннего цикла (retry), переход к следующей модели
-        }
-
-        // 2. Ошибка 404 (MODEL NOT FOUND) -> СРАЗУ меняем модель
-        if (lastError.indexOf("404") !== -1 || lastError.indexOf("not found") !== -1) {
-           console.log("Model " + modelName + " not found. Switching...");
-           break; 
-        }
-
-        // 3. Ошибка 503 (OVERLOADED) -> Ждем и пробуем эту же модель
-        if (lastError.indexOf("503") !== -1 || lastError.indexOf("Overloaded") !== -1) {
-          console.log("Model " + modelName + " overloaded. Waiting " + (attempt * 2) + "s...");
-          Utilities.sleep(2000 * attempt); 
-          continue; // Пробуем еще раз ту же модель
-        }
-        
-        // Другие ошибки -> меняем модель
-        break; 
-      }
-    }
-  }
+// === ФУНКЦИЯ ВЫЗОВА YANDEX GPT ===
+function callYandexGPT(prompt, jsonMode) {
+  var url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
   
-  return { error: "All AI models failed. Last error: " + lastError };
-}
+  // Если нужен JSON, добавляем инструкцию в промпт
+  var effectivePrompt = prompt;
+  if (jsonMode) {
+      effectivePrompt += "\n\nВАЖНО: Ответ должен быть ТОЛЬКО валидным JSON кодом. Без markdown разметки. Без пояснений.";
+  }
 
-function tryModel(model, prompt, jsonMode) {
-  var url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + GEMINI_API_KEY;
-  var payload = { contents: [{ parts: [{ text: prompt }] }] };
-  if (jsonMode) { payload.generationConfig = { responseMimeType: "application/json" }; }
+  var payload = {
+    "modelUri": "gpt://" + YANDEX_FOLDER_ID + "/yandexgpt/latest", 
+    "completionOptions": {
+      "stream": false,
+      "temperature": 0.5, 
+      "maxTokens": "4000"
+    },
+    "messages": [
+      {
+        "role": "system",
+        "text": "Ты профессиональный HR ассистент."
+      },
+      {
+        "role": "user",
+        "text": effectivePrompt
+      }
+    ]
+  };
 
   var options = {
     method: 'post',
     contentType: 'application/json',
+    headers: {
+      "Authorization": "Api-Key " + YANDEX_API_KEY,
+      "x-folder-id": YANDEX_FOLDER_ID
+    },
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
 
-  var response = UrlFetchApp.fetch(url, options);
-  var code = response.getResponseCode();
-  var text = response.getContentText();
-
-  if (code === 200) {
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var code = response.getResponseCode();
+    var text = response.getContentText();
     var json = JSON.parse(text);
-    if (json.candidates && json.candidates.length > 0) {
-       return { text: json.candidates[0].content.parts[0].text };
+
+    if (code === 200 && json.result && json.result.alternatives && json.result.alternatives.length > 0) {
+       var resultText = json.result.alternatives[0].message.text;
+       
+       // Очистка от ```json
+       if (jsonMode) {
+           resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
+       }
+       
+       return { text: resultText };
+    } else {
+       console.log("Yandex Error: " + text);
+       return { error: "Yandex API Error (" + code + "): " + text };
     }
-    throw new Error("Empty candidates in response");
-  } else {
-    throw new Error("HTTP " + code + ": " + text);
+  } catch (e) {
+    return { error: "Fetch Error: " + e.toString() };
   }
 }
