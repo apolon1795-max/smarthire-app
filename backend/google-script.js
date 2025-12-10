@@ -11,7 +11,8 @@ var GEMINI_API_KEY = "ВСТАВЬТЕ_ВАШ_API_KEY_СЮДА";
 
 // ==========================================
 
-// Вспомогательная функция для очистки HTML перед записью в таблицу
+
+// Функция очистки HTML от тегов для красивого вида в таблице
 function cleanHtmlForSheet(html) {
   if (!html) return "";
   
@@ -23,11 +24,12 @@ function cleanHtmlForSheet(html) {
     .replace(/<p>/gi, '')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
+    .replace(/<[^>]+>/g, '') // Удалить все остальные теги
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"');
 
+  // Убираем лишние пустые строки
   return text.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 }
 
@@ -38,6 +40,7 @@ function doGet(e) {
   try {
     var jobId = e.parameter.jobId;
     
+    // Пинг
     if (e.parameter.ping) {
        return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Pong" }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -94,17 +97,12 @@ function doPost(e) {
     var data = JSON.parse(e.postData.contents);
     var ss = SpreadsheetApp.openById(SHEET_ID);
 
+    // === ЛОГИКА ГЕНЕРАЦИИ AI ===
     if (data.action === "GENERATE_AI") {
-      if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("ВСТАВЬТЕ")) {
-         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "Backend Error: API Key not configured" }))
-        .setMimeType(ContentService.MimeType.JSON);
-      }
-      
-      // Вызываем умную функцию с перебором моделей
       var aiResponse = callGeminiSmart(data.prompt, data.jsonMode);
       
       if (aiResponse.error) {
-         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: "All AI models failed: " + aiResponse.error }))
+         return ContentService.createTextOutput(JSON.stringify({ status: "error", message: aiResponse.error }))
           .setMimeType(ContentService.MimeType.JSON);
       }
 
@@ -112,6 +110,7 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // === ЛОГИКА СОХРАНЕНИЯ КОНФИГА ===
     if (data.action === "SAVE_CONFIG") {
       var configSheet = ss.getSheetByName("Configs");
       if (!configSheet) {
@@ -123,14 +122,18 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({ status: "success", jobId: newJobId }))
         .setMimeType(ContentService.MimeType.JSON);
     }
+    
+    // === ЛОГИКА СОХРАНЕНИЯ РЕЗУЛЬТАТОВ ===
     else {
       var sheet = ss.getSheetByName("Data");
       if (!sheet) {
         sheet = ss.insertSheet("Data");
         sheet.appendRow(["Дата", "ФИО", "Вакансия", "Статус", "Анти-Фейк", "IQ Балл", "Надежность", "Эмоц. уст.", "Топ Мотиваторы", "SJT Балл", "Work Sample Ответ", "AI Анализ"]);
       }
+      
       var rawAnalysis = data.aiAnalysis || "";
       var cleanText = cleanHtmlForSheet(rawAnalysis).substring(0, 49000);
+      
       var row = [
         new Date(), data.candidateName, data.candidateRole, data.statusText, data.antiFakeStatus || "N/A",
         data.iqScore, data.reliability, data.emotionality, 
@@ -149,27 +152,55 @@ function doPost(e) {
   }
 }
 
-// Умная функция: пробует 2.5, если ошибка -> пробует 1.5
+// Умная функция с Fallback (сменой моделей) при лимитах
 function callGeminiSmart(prompt, jsonMode) {
-  // Список моделей по порядку
-  var models = ["gemini-2.5-flash", "gemini-1.5-flash"];
+  // Порядок моделей:
+  // 1. 2.5-flash (Самая умная, но частые лимиты)
+  // 2. 1.5-flash (Быстрая, стабильная)
+  // 3. 1.5-pro (Мощная, если flash не доступен)
+  var models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
   var lastError = "";
 
+  // Проходим по списку моделей
   for (var i = 0; i < models.length; i++) {
     var modelName = models[i];
-    try {
-      var result = tryModel(modelName, prompt, jsonMode);
-      if (result && result.text) {
-        return result; // Успех!
+    
+    // Попытка вызвать конкретную модель (до 3 раз)
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        var result = tryModel(modelName, prompt, jsonMode);
+        if (result && result.text) {
+          return result; // Успех!
+        }
+      } catch (e) {
+        lastError = e.toString();
+        
+        // 1. Ошибка 429 (QUOTA EXCEEDED) -> СРАЗУ меняем модель
+        if (lastError.indexOf("429") !== -1 || lastError.indexOf("quota") !== -1) {
+           console.log("Model " + modelName + " quota exceeded. Switching to next model...");
+           break; // Выход из внутреннего цикла (retry), переход к следующей модели
+        }
+
+        // 2. Ошибка 404 (MODEL NOT FOUND) -> СРАЗУ меняем модель
+        if (lastError.indexOf("404") !== -1 || lastError.indexOf("not found") !== -1) {
+           console.log("Model " + modelName + " not found. Switching...");
+           break; 
+        }
+
+        // 3. Ошибка 503 (OVERLOADED) -> Ждем и пробуем эту же модель
+        if (lastError.indexOf("503") !== -1 || lastError.indexOf("Overloaded") !== -1) {
+          console.log("Model " + modelName + " overloaded. Waiting " + (attempt * 2) + "s...");
+          Utilities.sleep(2000 * attempt); 
+          continue; // Пробуем еще раз ту же модель
+        }
+        
+        // Другие ошибки -> меняем модель
+        break; 
       }
-    } catch (e) {
-      lastError = e.toString();
-      console.log("Model " + modelName + " failed: " + lastError);
     }
-    // Если ошибка, цикл продолжится со следующей моделью
   }
   
-  return { error: "Failed to generate with any model. Last: " + lastError };
+  return { error: "All AI models failed. Last error: " + lastError };
 }
 
 function tryModel(model, prompt, jsonMode) {
@@ -190,7 +221,10 @@ function tryModel(model, prompt, jsonMode) {
 
   if (code === 200) {
     var json = JSON.parse(text);
-    return { text: json.candidates[0].content.parts[0].text };
+    if (json.candidates && json.candidates.length > 0) {
+       return { text: json.candidates[0].content.parts[0].text };
+    }
+    throw new Error("Empty candidates in response");
   } else {
     throw new Error("HTTP " + code + ": " + text);
   }
