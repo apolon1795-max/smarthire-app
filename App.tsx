@@ -1,12 +1,11 @@
-
 import React, { useState, useEffect } from 'react';
 import { TEST_DATA, HEXACO_KEY, FACTOR_NAMES, MOTIVATION_MAPPING, MOTIVATION_NAMES, MOTIVATION_BLOCKS, MOTIVATION_DRIVERS_LOGIC } from './data/testData';
 import TestRunner from './components/TestRunner';
 import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
-import { Brain, FileCheck, Target, ChevronRight, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Building, User, Lock, Briefcase as CaseIcon, PenTool, Settings } from 'lucide-react';
-import { SCRIPT_URL } from './services/geminiService'; // Импортируем URL из сервиса
+import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck } from 'lucide-react';
+import { SCRIPT_URL } from './services/geminiService';
 
 const ICONS: Record<string, React.ReactNode> = {
   intelligence: <Brain size={28} />,
@@ -34,7 +33,6 @@ export default function App() {
   const [showHrBuilder, setShowHrBuilder] = useState(false);
   const [previewConfig, setPreviewConfig] = useState<CustomTestConfig | null>(null);
 
-  // --- INIT: CHECK URL FOR JOB ID ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const jobId = params.get('jobId');
@@ -47,21 +45,19 @@ export default function App() {
   const injectCustomSections = (data: CustomTestConfig, isPreview = false) => {
       const customSections = [...TEST_DATA];
       
-      // Add SJT Section
       customSections.push({
         id: 'sjt',
         title: 'Ситуационные Кейсы (SJT)',
-        description: `Решение рабочих ситуаций для вакансии ${data.jobTitle}. Выберите наилучший вариант действий.`,
+        description: `Решение профессиональных дилемм для роли ${data.jobTitle}.`,
         displayMode: 'step',
         questions: data.sjtQuestions
       });
 
-      // Add Work Sample Section
       if (data.workSampleQuestion) {
         customSections.push({
           id: 'work_sample',
           title: 'Практическое Задание',
-          description: 'Выполнение тестового задания, максимально приближенного к реальной работе.',
+          description: 'Комплексный бизнес-кейс в формате "In-Basket". Проверка hard skills.',
           displayMode: 'step',
           questions: [data.workSampleQuestion]
         });
@@ -70,7 +66,6 @@ export default function App() {
       setTestSections(customSections);
       
       if (isPreview) {
-        // If previewing, auto-authenticate and set dummy info to jump straight to test
         setCandidateInfo({ name: 'HR Preview', age: 'N/A', department: 'HR', role: data.jobTitle });
         setIsAuthenticated(true);
         setShowHrBuilder(false);
@@ -82,25 +77,20 @@ export default function App() {
     try {
       const response = await fetch(`${SCRIPT_URL}?jobId=${jobId}`);
       const data = await response.json();
-      
-      if (data && data.sjtQuestions) {
-        injectCustomSections(data);
-      }
+      if (data && data.sjtQuestions) injectCustomSections(data);
     } catch (e) {
       console.error("Failed to load custom config", e);
-      alert("Не удалось загрузить данные вакансии. Будет использован стандартный тест.");
     } finally {
       setIsLoadingConfig(false);
     }
   };
 
-  // Handle Internal Preview from HrBuilder
   const handleTestPreview = (config: CustomTestConfig) => {
     setPreviewConfig(config);
     injectCustomSections(config, true);
   };
 
-  // --- SCORING LOGIC --- (Hexaco & Motivation kept same)
+  // --- SCORING (same) ---
   const calculateHexacoScores = (answers: UserAnswers): HexacoScore[] => {
     const scores: Record<string, { sum: number; count: number }> = {
       'H': { sum: 0, count: 0 }, 'E': { sum: 0, count: 0 }, 'X': { sum: 0, count: 0 },
@@ -156,7 +146,6 @@ export default function App() {
   const handleSectionComplete = (sectionId: string, answers: UserAnswers) => {
     const sectionData = testSections.find(t => t.id === sectionId);
     if (!sectionData) return;
-
     let rawScore = 0;
     let maxPossibleScore = 0;
     let hexacoProfile: HexacoScore[] | undefined;
@@ -166,49 +155,26 @@ export default function App() {
 
     if (sectionId === 'conscientiousness') {
       hexacoProfile = calculateHexacoScores(answers);
-      const cFactor = hexacoProfile.find(f => f.code === 'C');
-      rawScore = cFactor ? cFactor.average : 0;
+      rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 0;
       maxPossibleScore = 5;
-      
       const attentionVal = answers['check_attention'] === 1;
       const lie1 = typeof answers['check_lie_1'] === 'number' ? answers['check_lie_1'] : 0;
       const lie2 = typeof answers['check_lie_2'] === 'number' ? answers['check_lie_2'] : 0;
       validityProfile = { attentionPassed: attentionVal, lieScore: (lie1 + lie2) / 2, statusLabel: attentionVal ? 'Valid' : 'FAIL' };
-
     } else if (sectionId === 'motivation') {
        motivationProfile = calculateMotivationProfile(answers);
        const totalSum = Object.values(answers).reduce((a, b) => (typeof a === 'number' ? a : 0) + (typeof b === 'number' ? b : 0), 0);
        rawScore = Object.keys(answers).length > 0 ? (totalSum as number / Object.keys(answers).length) : 0;
        maxPossibleScore = 6;
     } else if (sectionId === 'sjt') {
-       // Simple SJT Scoring: sum of values
-       Object.values(answers).forEach(val => {
-         if (typeof val === 'number') rawScore += val;
-         maxPossibleScore += 2; // Assuming max 2 points per question
-       });
+       Object.values(answers).forEach(val => { if (typeof val === 'number') rawScore += val; maxPossibleScore += 2; });
     } else if (sectionId === 'work_sample') {
-       // Work sample is text, no auto score
-       const qId = sectionData.questions[0].id;
-       textAnswer = answers[qId] as string;
+       textAnswer = answers[sectionData.questions[0].id] as string;
     } else {
-      // Intelligence
-      sectionData.questions.forEach(q => {
-        const val = answers[q.id];
-        if (typeof val === 'number') rawScore += val;
-        maxPossibleScore += 1;
-      });
+      sectionData.questions.forEach(q => { if (typeof answers[q.id] === 'number') rawScore += answers[q.id] as number; maxPossibleScore += 1; });
     }
-
     const percentage = maxPossibleScore > 0 ? (rawScore / maxPossibleScore) * 100 : 0;
-
-    const newResult: TestResult = {
-      sectionId: sectionId as any,
-      title: sectionData.title,
-      rawScore, maxScore: maxPossibleScore, percentage, answers,
-      hexacoProfile, motivationProfile, validityProfile, textAnswer
-    };
-
-    setResults(prev => [...prev.filter(r => r.sectionId !== sectionId), newResult]);
+    setResults(prev => [...prev.filter(r => r.sectionId !== sectionId), { sectionId: sectionId as any, title: sectionData.title, rawScore, maxScore: maxPossibleScore, percentage, answers, hexacoProfile, motivationProfile, validityProfile, textAnswer }]);
     setCompletedSections(prev => [...prev, sectionId]);
     setActiveSectionId(null);
   };
@@ -230,68 +196,81 @@ export default function App() {
   const handleLoginSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const code = formData.get('code') as string;
-    if (code === ACCESS_CODE) setIsAuthenticated(true);
+    if (formData.get('code') === ACCESS_CODE) setIsAuthenticated(true);
     else alert("Неверный код доступа");
   };
 
-  // --- RENDERING ---
+  if (isLoadingConfig) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold animate-pulse">Загрузка портала...</div>;
+  if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} onExit={() => setShowHrBuilder(false)} onTestPreview={handleTestPreview} />;
 
-  if (isLoadingConfig) {
-    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500">Загрузка вакансии...</div>;
-  }
-
-  if (showHrBuilder) {
-    return <HrBuilder scriptUrl={SCRIPT_URL} onExit={() => setShowHrBuilder(false)} onTestPreview={handleTestPreview} />;
-  }
-
-  if (!isAuthenticated) {
+  // --- LOGIC: FIRST SCREEN ---
+  // If NO JobID -> Show Landing with HR Button only
+  if (!customJobId && !isAuthenticated && !candidateInfo) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center">
-          <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30">
-            <Lock className="text-blue-400" size={32} />
-          </div>
-          <h1 className="text-xl font-bold text-white mb-6">Корпоративный Вход</h1>
-          <form onSubmit={handleLoginSubmit}>
-            <input name="code" type="password" required placeholder="Код Доступа" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white mb-4 focus:border-blue-500 outline-none text-center tracking-widest" />
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl shadow-lg transition-all">Войти</button>
-          </form>
-          
-          {/* HR Button */}
-          <div className="mt-8 pt-6 border-t border-slate-800">
-             <button onClick={() => setShowHrBuilder(true)} className="text-slate-500 hover:text-slate-300 text-sm font-medium flex items-center justify-center gap-2 mx-auto transition-colors">
-               <Settings size={14} /> HR Конструктор
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-xl w-full">
+           <div className="mb-12 space-y-4">
+              <div className="inline-flex p-4 rounded-3xl bg-blue-600/10 border border-blue-500/20 mb-4">
+                <ShieldCheck className="text-blue-500" size={64} />
+              </div>
+              <h1 className="text-5xl font-extrabold text-white tracking-tight">SmartHire Assessment</h1>
+              <p className="text-slate-400 text-lg">Платформа для профессиональной оценки персонала и генерации индивидуальных тестов с помощью AI.</p>
+           </div>
+           
+           <div className="bg-slate-900/50 p-1 rounded-2xl border border-slate-800">
+             <button 
+               onClick={() => setShowHrBuilder(true)} 
+               className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-5 rounded-xl shadow-2xl shadow-blue-900/40 transition-all group"
+             >
+               <Settings size={24} className="group-hover:rotate-45 transition-transform" />
+               ВХОД ДЛЯ HR-СПЕЦИАЛИСТА
              </button>
-          </div>
+           </div>
+           
+           <p className="mt-8 text-slate-600 text-sm">© 2025 SmartHire Solutions. Все права защищены.</p>
         </div>
       </div>
     );
   }
 
-  if (!candidateInfo) {
+  // --- LOGIC: CANDIDATE VIEW (JobId present) ---
+  if (customJobId && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full">
-          <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 relative overflow-hidden mb-6">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
-            <div className="text-center mb-8">
-              <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30">
-                <UserPlus className="text-blue-400" size={32} />
-              </div>
-              <h1 className="text-2xl font-bold text-white mb-2">Регистрация Кандидата</h1>
-              {customJobId && <p className="text-green-400 text-sm font-medium bg-green-900/30 py-1 px-3 rounded-full inline-block mt-2">Спец. тестирование: Вакансия найдена</p>}
-            </div>
-            <form onSubmit={handleRegistrationSubmit} className="space-y-5">
-              <div><label className="block text-slate-400 text-sm font-bold mb-2 ml-1">ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-              <div><label className="block text-slate-400 text-sm font-bold mb-2 ml-1">Возраст</label><input name="age" type="number" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-slate-400 text-sm font-bold mb-2 ml-1">Отдел</label><input name="department" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-                <div><label className="block text-slate-400 text-sm font-bold mb-2 ml-1">Должность</label><input name="role" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-              </div>
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4">Начать Тестирование</button>
-            </form>
+        <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center">
+          <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30">
+            <LogIn className="text-blue-400" size={32} />
           </div>
+          <h1 className="text-xl font-bold text-white mb-2">Доступ к тестированию</h1>
+          <p className="text-slate-400 text-sm mb-6">Введите код доступа, предоставленный вашим HR-менеджером.</p>
+          <form onSubmit={handleLoginSubmit}>
+            <input name="code" type="password" required placeholder="КОД ДОСТУПА" className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white mb-4 focus:border-blue-500 outline-none text-center tracking-widest font-bold" />
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl shadow-lg transition-all">Подтвердить</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthenticated && !candidateInfo) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
+          <div className="text-center mb-8">
+            <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><UserPlus className="text-blue-400" size={32} /></div>
+            <h1 className="text-2xl font-bold text-white mb-2">Анкета Кандидата</h1>
+            <p className="text-slate-400 text-sm">Пожалуйста, заполните данные для формирования отчета.</p>
+          </div>
+          <form onSubmit={handleRegistrationSubmit} className="space-y-4">
+            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
+            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Возраст</label><input name="age" type="number" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Отдел</label><input name="department" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
+              <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Должность</label><input name="role" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
+            </div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4 transition-all">НАЧАТЬ ТЕСТ</button>
+          </form>
         </div>
       </div>
     );
@@ -299,7 +278,7 @@ export default function App() {
 
   if (activeSectionId) {
     const section = testSections.find(t => t.id === activeSectionId);
-    if (!section) return <div>Ошибка</div>;
+    if (!section) return null;
     return <div className="min-h-screen bg-slate-950 py-6 px-4 sm:px-6"><TestRunner section={section} onComplete={handleSectionComplete} onExit={() => setActiveSectionId(null)} /></div>;
   }
 
@@ -310,9 +289,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
       <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center">
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4">Портал Оценки Кандидатов</h1>
-        <p className="text-lg text-slate-400 max-w-2xl mx-auto mb-2">Здравствуйте, <span className="text-white font-semibold">{candidateInfo.name}</span>.</p>
-        {(customJobId || previewConfig) && <span className="inline-block bg-blue-500/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Индивидуальный трек</span>}
+        <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
+        <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>. Завершите все этапы тестирования.</p>
       </header>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-24">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -321,12 +299,12 @@ export default function App() {
             return (
               <div key={section.id} onClick={() => !isCompleted && startTest(section.id)} className={`relative group rounded-2xl p-8 border backdrop-blur-sm transition-all duration-300 flex flex-col h-full ${isCompleted ? 'bg-slate-900/40 border-green-500/30 cursor-default' : 'bg-slate-900/60 border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/80 cursor-pointer hover:-translate-y-1'}`}>
                 <div className="absolute top-6 right-6">{isCompleted ? <CheckCircle2 className="text-green-400" size={20} /> : <Circle className="text-slate-600" size={20} />}</div>
-                <div className="mb-6 p-4 rounded-xl inline-block w-fit bg-slate-800 text-slate-300">{ICONS[section.id] || <Layers size={28}/>}</div>
+                <div className="mb-6 p-4 rounded-xl inline-block w-fit bg-slate-800 text-slate-300 transition-colors group-hover:bg-slate-700">{ICONS[section.id] || <Layers size={28}/>}</div>
                 <h3 className="text-xl font-bold mb-3 text-slate-100">{section.title}</h3>
                 <p className="text-slate-400 text-sm leading-relaxed mb-8 flex-grow">{section.description}</p>
                 <div className="mt-auto pt-6 border-t border-slate-800 flex items-center justify-between">
-                  {!isCompleted && <span className="text-blue-500 font-semibold text-sm">Начать тест</span>}
-                  {isCompleted && <span className="text-green-500 text-sm">Завершено</span>}
+                  {!isCompleted && <span className="text-blue-500 font-bold text-sm uppercase tracking-wider">Начать тест</span>}
+                  {isCompleted && <span className="text-green-500 text-sm font-bold flex items-center gap-2"><CheckCircle2 size={16}/> ЗАВЕРШЕНО</span>}
                 </div>
               </div>
             );
