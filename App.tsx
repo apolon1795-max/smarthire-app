@@ -4,7 +4,7 @@ import TestRunner from './components/TestRunner';
 import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
-import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck } from 'lucide-react';
+import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2 } from 'lucide-react';
 import { SCRIPT_URL } from './services/geminiService';
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -65,7 +65,7 @@ export default function App() {
       setTestSections(customSections);
       
       if (isPreview) {
-        setCandidateInfo({ name: 'HR Preview', age: 'N/A', department: 'HR', role: data.jobTitle });
+        setCandidateInfo({ name: 'HR Preview', age: '30', department: 'HR Dept', role: data.jobTitle });
         setIsAuthenticated(true);
         setShowHrBuilder(false);
       }
@@ -88,7 +88,7 @@ export default function App() {
     injectCustomSections(config, true);
   };
 
-  // --- SCORING ---
+  // --- SCORING (Adjusted for 0-100% logic: (avg - 1) / 4 * 100) ---
   const calculateHexacoScores = (answers: UserAnswers): HexacoScore[] => {
     const scores: Record<string, { sum: number; count: number }> = {
       'H': { sum: 0, count: 0 }, 'E': { sum: 0, count: 0 }, 'X': { sum: 0, count: 0 },
@@ -102,11 +102,17 @@ export default function App() {
         if (scores[keyData.code]) { scores[keyData.code].sum += finalValue; scores[keyData.code].count += 1; }
       }
     });
-    return Object.entries(scores).map(([code, data]) => ({
-      factor: FACTOR_NAMES[code], code: code, rawScore: data.sum, questionCount: data.count,
-      average: parseFloat((data.count > 0 ? data.sum / data.count : 0).toFixed(2)),
-      percentage: (data.sum / (data.count * 5)) * 100
-    }));
+    return Object.entries(scores).map(([code, data]) => {
+      const average = parseFloat((data.count > 0 ? data.sum / data.count : 1).toFixed(2));
+      return {
+        factor: FACTOR_NAMES[code],
+        code: code,
+        rawScore: data.sum,
+        questionCount: data.count,
+        average: average,
+        percentage: ((average - 1) / 4) * 100 // 1.0 -> 0%, 5.0 -> 100%
+      };
+    });
   };
 
   const calculateMotivationProfile = (answers: UserAnswers): MotivationProfile => {
@@ -127,13 +133,13 @@ export default function App() {
     const blocks: BlockScore[] = Object.entries(MOTIVATION_BLOCKS).map(([blockKey, blockData]) => {
       const relevantValues = values.filter(v => blockData.values.includes(v.code));
       const sum = relevantValues.reduce((acc, v) => acc + v.score, 0);
-      const avg = relevantValues.length > 0 ? sum / relevantValues.length : 0;
+      const avg = relevantValues.length > 0 ? sum / relevantValues.length : 1;
       return { name: blockData.name, score: parseFloat(avg.toFixed(2)) };
     });
     const drivers: DriverScore[] = Object.entries(MOTIVATION_DRIVERS_LOGIC).map(([key, logic]) => {
       const relevantValues = values.filter(v => logic.values.includes(v.code));
       const sum = relevantValues.reduce((acc, v) => acc + v.score, 0);
-      const avg = relevantValues.length > 0 ? sum / relevantValues.length : 0;
+      const avg = relevantValues.length > 0 ? sum / relevantValues.length : 1;
       return { name: logic.name, score: parseFloat(avg.toFixed(1)), rank: 0, recommendation: logic.hint };
     });
     drivers.sort((a, b) => b.score - a.score);
@@ -153,16 +159,16 @@ export default function App() {
 
     if (sectionId === 'conscientiousness') {
       hexacoProfile = calculateHexacoScores(answers);
-      rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 0;
+      rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 1;
       maxPossibleScore = 5;
       const attentionVal = answers['check_attention'] === 1;
-      const lie1 = typeof answers['check_lie_1'] === 'number' ? answers['check_lie_1'] : 0;
-      const lie2 = typeof answers['check_lie_2'] === 'number' ? answers['check_lie_2'] : 0;
+      const lie1 = typeof answers['check_lie_1'] === 'number' ? answers['check_lie_1'] : 1;
+      const lie2 = typeof answers['check_lie_2'] === 'number' ? answers['check_lie_2'] : 1;
       validityProfile = { attentionPassed: attentionVal, lieScore: (lie1 + lie2) / 2, statusLabel: attentionVal ? 'Valid' : 'FAIL' };
     } else if (sectionId === 'motivation') {
        motivationProfile = calculateMotivationProfile(answers);
        const totalSum = Object.values(answers).reduce((a, b) => (typeof a === 'number' ? a : 0) + (typeof b === 'number' ? b : 0), 0);
-       rawScore = Object.keys(answers).length > 0 ? (totalSum as number / Object.keys(answers).length) : 0;
+       rawScore = Object.keys(answers).length > 0 ? (totalSum as number / Object.keys(answers).length) : 1;
        maxPossibleScore = 6;
     } else if (sectionId === 'sjt') {
        Object.values(answers).forEach(val => { if (typeof val === 'number') rawScore += val; maxPossibleScore += 2; });
@@ -172,8 +178,82 @@ export default function App() {
       sectionData.questions.forEach(q => { if (typeof answers[q.id] === 'number') rawScore += answers[q.id] as number; maxPossibleScore += 1; });
     }
     const percentage = maxPossibleScore > 0 ? (rawScore / maxPossibleScore) * 100 : 0;
-    setResults(prev => [...prev.filter(r => r.sectionId !== sectionId), { sectionId: sectionId as any, title: sectionData.title, rawScore, maxScore: maxPossibleScore, percentage, answers, hexacoProfile, motivationProfile, validityProfile, textAnswer }]);
+    
+    setResults(prev => [...prev.filter(r => r.sectionId !== sectionId), { 
+      sectionId: sectionId as any, 
+      title: sectionData.title, 
+      rawScore, 
+      maxScore: maxPossibleScore, 
+      percentage, 
+      answers, 
+      hexacoProfile, 
+      motivationProfile, 
+      validityProfile, 
+      textAnswer 
+    }]);
     setCompletedSections(prev => [...prev, sectionId]);
+    setActiveSectionId(null);
+  };
+
+  const handleAutofillAll = () => {
+    const allResults: TestResult[] = [];
+    const allCompleted: string[] = [];
+
+    testSections.forEach(section => {
+      const answers: UserAnswers = {};
+      section.questions.forEach(q => {
+        if (q.type === 'likert') {
+          answers[q.id] = Math.floor(Math.random() * (section.scaleMax || 5)) + 1;
+          if (q.id === 'check_attention') answers[q.id] = 1; // Force pass attention
+        } else if (q.type === 'single-choice' || q.type === 'scenario') {
+          const randomIndex = Math.floor(Math.random() * q.options!.length);
+          answers[q.id] = q.options![randomIndex].value;
+        } else if (q.type === 'text') {
+          answers[q.id] = "Это пример автоматического заполнения ответа для тестирования функционала отчета. Кандидат проявил аналитические способности и предложил структурированный план решения проблемы.";
+        }
+      });
+
+      let rawScore = 0;
+      let maxPossibleScore = 0;
+      let hexacoProfile: HexacoScore[] | undefined;
+      let motivationProfile: MotivationProfile | undefined;
+      let validityProfile: ValidityProfile | undefined;
+      let textAnswer: string | undefined;
+
+      if (section.id === 'conscientiousness') {
+        hexacoProfile = calculateHexacoScores(answers);
+        rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 1;
+        maxPossibleScore = 5;
+        validityProfile = { attentionPassed: true, lieScore: 2.5, statusLabel: 'Valid' };
+      } else if (section.id === 'motivation') {
+        motivationProfile = calculateMotivationProfile(answers);
+        rawScore = 3.5;
+        maxPossibleScore = 6;
+      } else if (section.id === 'sjt') {
+        Object.values(answers).forEach(val => { if (typeof val === 'number') rawScore += val; maxPossibleScore += 2; });
+      } else if (section.id === 'work_sample') {
+        textAnswer = answers[section.questions[0].id] as string;
+      } else {
+        section.questions.forEach(q => { if (typeof answers[q.id] === 'number') rawScore += answers[q.id] as number; maxPossibleScore += 1; });
+      }
+
+      allResults.push({
+        sectionId: section.id,
+        title: section.title,
+        rawScore,
+        maxScore: maxPossibleScore,
+        percentage: maxPossibleScore > 0 ? (rawScore / maxPossibleScore) * 100 : 0,
+        answers,
+        hexacoProfile,
+        motivationProfile,
+        validityProfile,
+        textAnswer
+      });
+      allCompleted.push(section.id);
+    });
+
+    setResults(allResults);
+    setCompletedSections(allCompleted);
     setActiveSectionId(null);
   };
 
@@ -295,7 +375,19 @@ export default function App() {
       <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center">
         <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>. Завершите все этапы тестирования.</p>
+        
+        {candidateInfo?.name === 'HR Preview' && (
+          <div className="mt-6">
+            <button 
+              onClick={handleAutofillAll}
+              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold shadow-xl shadow-indigo-900/40 transition-all animate-bounce"
+            >
+              <Wand2 size={20}/> МАГИЧЕСКОЕ АВТОЗАПОЛНЕНИЕ (ПРЕВЬЮ)
+            </button>
+          </div>
+        )}
       </header>
+      
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-24">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {testSections.map((section) => {
