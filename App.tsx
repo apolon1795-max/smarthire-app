@@ -24,15 +24,25 @@ export default function App() {
   const [completedSections, setCompletedSections] = useState<string[]>([]);
   const [results, setResults] = useState<TestResult[]>([]);
   
-  // Custom Config State
   const [customJobId, setCustomJobId] = useState<string | null>(null);
   const [testSections, setTestSections] = useState(TEST_DATA);
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
-  
-  // View Modes
   const [showHrBuilder, setShowHrBuilder] = useState(false);
 
+  // --- LOCAL STORAGE LOAD ---
   useEffect(() => {
+    const savedResults = localStorage.getItem('sh_results');
+    const savedCompleted = localStorage.getItem('sh_completed');
+    const savedCandidate = localStorage.getItem('sh_candidate');
+    const savedAuth = localStorage.getItem('sh_auth');
+    const savedActiveSection = localStorage.getItem('sh_active_section_id');
+
+    if (savedResults) setResults(JSON.parse(savedResults));
+    if (savedCompleted) setCompletedSections(JSON.parse(savedCompleted));
+    if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
+    if (savedAuth === 'true') setIsAuthenticated(true);
+    if (savedActiveSection) setActiveSectionId(savedActiveSection);
+
     const params = new URLSearchParams(window.location.search);
     const jobId = params.get('jobId');
     if (jobId) {
@@ -41,9 +51,18 @@ export default function App() {
     }
   }, []);
 
+  // --- LOCAL STORAGE SAVE ---
+  useEffect(() => {
+    localStorage.setItem('sh_results', JSON.stringify(results));
+    localStorage.setItem('sh_completed', JSON.stringify(completedSections));
+    if (candidateInfo) localStorage.setItem('sh_candidate', JSON.stringify(candidateInfo));
+    localStorage.setItem('sh_auth', isAuthenticated.toString());
+    if (activeSectionId) localStorage.setItem('sh_active_section_id', activeSectionId);
+    else localStorage.removeItem('sh_active_section_id');
+  }, [results, completedSections, candidateInfo, isAuthenticated, activeSectionId]);
+
   const injectCustomSections = (data: CustomTestConfig, isPreview = false) => {
       const customSections = [...TEST_DATA];
-      
       customSections.push({
         id: 'sjt',
         title: 'Ситуационные Кейсы (SJT)',
@@ -51,7 +70,6 @@ export default function App() {
         displayMode: 'step',
         questions: data.sjtQuestions
       });
-
       if (data.workSampleQuestion) {
         customSections.push({
           id: 'work_sample',
@@ -61,11 +79,11 @@ export default function App() {
           questions: [data.workSampleQuestion]
         });
       }
-
       setTestSections(customSections);
       
       if (isPreview) {
-        setCandidateInfo({ name: 'HR Preview', age: '30', department: 'HR Dept', role: data.jobTitle });
+        const info = { name: 'HR Preview', age: '30', department: 'HR Dept', role: data.jobTitle };
+        setCandidateInfo(info);
         setIsAuthenticated(true);
         setShowHrBuilder(false);
       }
@@ -88,7 +106,7 @@ export default function App() {
     injectCustomSections(config, true);
   };
 
-  // --- SCORING (Adjusted for 0-100% logic: (avg - 1) / 4 * 100) ---
+  // --- SCORING (Corrected for 0-100% logic) ---
   const calculateHexacoScores = (answers: UserAnswers): HexacoScore[] => {
     const scores: Record<string, { sum: number; count: number }> = {
       'H': { sum: 0, count: 0 }, 'E': { sum: 0, count: 0 }, 'X': { sum: 0, count: 0 },
@@ -110,7 +128,7 @@ export default function App() {
         rawScore: data.sum,
         questionCount: data.count,
         average: average,
-        percentage: ((average - 1) / 4) * 100 // 1.0 -> 0%, 5.0 -> 100%
+        percentage: ((average - 1) / 4) * 100
       };
     });
   };
@@ -180,18 +198,10 @@ export default function App() {
     const percentage = maxPossibleScore > 0 ? (rawScore / maxPossibleScore) * 100 : 0;
     
     setResults(prev => [...prev.filter(r => r.sectionId !== sectionId), { 
-      sectionId: sectionId as any, 
-      title: sectionData.title, 
-      rawScore, 
-      maxScore: maxPossibleScore, 
-      percentage, 
-      answers, 
-      hexacoProfile, 
-      motivationProfile, 
-      validityProfile, 
-      textAnswer 
+      sectionId: sectionId as any, title: sectionData.title, rawScore, maxScore: maxPossibleScore, percentage, answers, hexacoProfile, motivationProfile, validityProfile, textAnswer 
     }]);
     setCompletedSections(prev => [...prev, sectionId]);
+    localStorage.removeItem(`sh_answers_${sectionId}`);
     setActiveSectionId(null);
   };
 
@@ -204,30 +214,27 @@ export default function App() {
       section.questions.forEach(q => {
         if (q.type === 'likert') {
           answers[q.id] = Math.floor(Math.random() * (section.scaleMax || 5)) + 1;
-          if (q.id === 'check_attention') answers[q.id] = 1; // Force pass attention
+          if (q.id === 'check_attention') answers[q.id] = 1;
         } else if (q.type === 'single-choice' || q.type === 'scenario') {
           const randomIndex = Math.floor(Math.random() * q.options!.length);
           answers[q.id] = q.options![randomIndex].value;
         } else if (q.type === 'text') {
-          answers[q.id] = "Это пример автоматического заполнения ответа для тестирования функционала отчета. Кандидат проявил аналитические способности и предложил структурированный план решения проблемы.";
+          answers[q.id] = "Кандидат проявил высокий уровень компетенций. В стрессовой ситуации предложил эффективный алгоритм действий: локализация проблемы, уведомление стейкхолдеров, запуск резервных мощностей. Ответ структурирован и логичен.";
         }
       });
 
+      let hexacoProfile, motivationProfile, validityProfile, textAnswer;
       let rawScore = 0;
       let maxPossibleScore = 0;
-      let hexacoProfile: HexacoScore[] | undefined;
-      let motivationProfile: MotivationProfile | undefined;
-      let validityProfile: ValidityProfile | undefined;
-      let textAnswer: string | undefined;
 
       if (section.id === 'conscientiousness') {
         hexacoProfile = calculateHexacoScores(answers);
-        rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 1;
+        rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 3;
         maxPossibleScore = 5;
-        validityProfile = { attentionPassed: true, lieScore: 2.5, statusLabel: 'Valid' };
+        validityProfile = { attentionPassed: true, lieScore: 2.0, statusLabel: 'Valid' };
       } else if (section.id === 'motivation') {
         motivationProfile = calculateMotivationProfile(answers);
-        rawScore = 3.5;
+        rawScore = 4;
         maxPossibleScore = 6;
       } else if (section.id === 'sjt') {
         Object.values(answers).forEach(val => { if (typeof val === 'number') rawScore += val; maxPossibleScore += 2; });
@@ -258,17 +265,27 @@ export default function App() {
   };
 
   const startTest = (id: string) => setActiveSectionId(id);
-  const resetApp = () => { setActiveSectionId(null); setCompletedSections([]); setResults([]); setCandidateInfo(null); setIsAuthenticated(false); setTestSections(TEST_DATA); };
+  const resetApp = () => {
+    localStorage.clear();
+    setActiveSectionId(null);
+    setCompletedSections([]);
+    setResults([]);
+    setCandidateInfo(null);
+    setIsAuthenticated(false);
+    setTestSections(TEST_DATA);
+    window.location.reload();
+  };
 
   const handleRegistrationSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    setCandidateInfo({
+    const info = {
       name: formData.get('name') as string,
       age: formData.get('age') as string,
       department: formData.get('department') as string,
       role: formData.get('role') as string,
-    });
+    };
+    setCandidateInfo(info);
   };
 
   const handleLoginSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -281,7 +298,7 @@ export default function App() {
   if (isLoadingConfig) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold animate-pulse">Загрузка портала...</div>;
   if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} onExit={() => setShowHrBuilder(false)} onTestPreview={handleTestPreview} />;
 
-  // --- LOGIC: FIRST SCREEN (NO JOB ID) ---
+  // --- RENDERING LOGIC ---
   if (!customJobId && !isAuthenticated && !candidateInfo) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -293,24 +310,17 @@ export default function App() {
               <h1 className="text-5xl font-extrabold text-white tracking-tight">SmartHire Assessment</h1>
               <p className="text-slate-400 text-lg">Платформа для профессиональной оценки персонала и генерации индивидуальных тестов с помощью AI.</p>
            </div>
-           
            <div className="bg-slate-900/50 p-1 rounded-2xl border border-slate-800">
-             <button 
-               onClick={() => setShowHrBuilder(true)} 
-               className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-5 rounded-xl shadow-2xl shadow-blue-900/40 transition-all group"
-             >
-               <Settings size={24} className="group-hover:rotate-45 transition-transform" />
-               ВХОД ДЛЯ HR-СПЕЦИАЛИСТА
+             <button onClick={() => setShowHrBuilder(true)} className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-5 rounded-xl shadow-2xl shadow-blue-900/40 transition-all group">
+               <Settings size={24} className="group-hover:rotate-45 transition-transform" /> ВХОД ДЛЯ HR-СПЕЦИАЛИСТА
              </button>
            </div>
-           
-           <p className="mt-8 text-slate-600 text-sm">© 2025 SmartHire Solutions. Все права защищены.</p>
+           <p className="mt-8 text-slate-600 text-sm">© 2025 SmartHire Solutions.</p>
         </div>
       </div>
     );
   }
 
-  // --- LOGIC: CANDIDATE PORTAL (JOB ID PRESENT) ---
   if (customJobId && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -319,18 +329,15 @@ export default function App() {
           <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30">
             <LogIn className="text-blue-400" size={32} />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2 tracking-tight">Портал Кандидата</h1>
-          <p className="text-slate-400 text-sm mb-8 leading-relaxed">Введите код доступа, полученный в приглашении от HR-менеджера.</p>
+          <h1 className="text-2xl font-bold text-white mb-2">Портал Кандидата</h1>
+          <p className="text-slate-400 text-sm mb-8">Введите код доступа из приглашения.</p>
           <form onSubmit={handleLoginSubmit}>
             <div className="relative mb-6">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-              <input name="code" type="password" required placeholder="КОД ДОСТУПА" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-12 pr-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-[0.3em] font-black placeholder:tracking-normal placeholder:font-normal" />
+              <input name="code" type="password" required placeholder="КОД ДОСТУПА" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-12 pr-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-[0.3em] font-black" />
             </div>
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all active:scale-[0.98]">Войти в систему</button>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Войти в систему</button>
           </form>
-          <div className="mt-8 pt-6 border-t border-slate-800/50">
-             <p className="text-slate-600 text-xs uppercase tracking-widest font-bold">Secure Access System</p>
-          </div>
         </div>
       </div>
     );
@@ -344,7 +351,6 @@ export default function App() {
           <div className="text-center mb-8">
             <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><UserPlus className="text-blue-400" size={32} /></div>
             <h1 className="text-2xl font-bold text-white mb-2">Анкета Кандидата</h1>
-            <p className="text-slate-400 text-sm">Пожалуйста, заполните данные для формирования отчета.</p>
           </div>
           <form onSubmit={handleRegistrationSubmit} className="space-y-4">
             <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
@@ -374,20 +380,16 @@ export default function App() {
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
       <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center">
         <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
-        <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>. Завершите все этапы тестирования.</p>
+        <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>.</p>
         
         {candidateInfo?.name === 'HR Preview' && (
           <div className="mt-6">
-            <button 
-              onClick={handleAutofillAll}
-              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold shadow-xl shadow-indigo-900/40 transition-all animate-bounce"
-            >
+            <button onClick={handleAutofillAll} className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold shadow-xl shadow-indigo-900/40 transition-all animate-bounce">
               <Wand2 size={20}/> МАГИЧЕСКОЕ АВТОЗАПОЛНЕНИЕ (ПРЕВЬЮ)
             </button>
           </div>
         )}
       </header>
-      
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-24">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {testSections.map((section) => {
