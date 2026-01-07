@@ -1,7 +1,8 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../types";
+import { TestResult, CandidateInfo, CustomTestConfig } from "./types";
 
+// Безопасное получение API ключа
 const getApiKey = () => {
   try {
     return process.env.API_KEY || '';
@@ -14,7 +15,8 @@ const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
-export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo, benchmark?: BenchmarkData): Promise<string> => {
+// Fix: Escaped backticks and corrected text property access.
+export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
   const resultsText = results.map(r => {
     let details = '';
     if (r.sectionId === 'conscientiousness') details = ` (HEXACO: ${r.hexacoProfile?.map(h => `${h.code}=${h.average}`).join(', ')})`;
@@ -23,41 +25,27 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
   }).join('\n');
 
-  const benchmarkText = benchmark ? `
-  ЦЕЛЕВОЙ ПРОФИЛЬ (БЕНЧМАРК):
-  - Интеллект (IQ): ${benchmark.iq} из 12
-  - Надежность: ${benchmark.reliability}%
-  - Кейс-тест (SJT): ${benchmark.sjt} из 8
-  ` : "Бенчмарк не задан.";
-
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Ты ведущий HR-аналитик. Проанализируй данные кандидата в сравнении с эталоном.
+    contents: `Ты HR-аналитик. Напиши краткий отчет (Сильные стороны, Риски, Вывод). 
     Кандидат: ${candidateInfo?.name}, Роль: ${candidateInfo?.role}. 
-    
-    ${benchmarkText}
-
-    ДАННЫЕ ТЕСТОВ КАНДИДАТА:
+    РЕЗУЛЬТАТЫ ТЕСТОВ:
     ${resultsText}
     
-    СТРУКТУРА ОТЧЕТА (используй теги <h3> для разделов):
-    1. <h3>Соответствие должности (Match Analysis)</h3> - Насколько кандидат близок к эталону? В чем главные разрывы (gaps)?
-    2. <h3>Сильные стороны</h3> - В чем он превосходит ожидания.
-    3. <h3>Риски и ограничения</h3> - Где он не дотягивает до бенчмарка.
-    4. <h3>Рекомендация по найму</h3> - Конкретный вердикт.
-    
-    ТРЕБОВАНИЯ К ОФОРМЛЕНИЮ:
-    - Разделяй текст на логические блоки тегом <p>.
-    - Используй <b> для акцентов.
-    - ЗАПРЕЩЕНО использовать markdown (\`\`\`), только чистый HTML.`,
+    ТРЕБОВАНИЯ:
+    1. Обязательно дай развернутую оценку ОТВЕТУ НА КЕЙС (Практическое задание).
+    2. Пиши строго без markdown (никаких тройных кавычек).
+    3. Используй ТОЛЬКО теги <h3> для заголовков и <b> для выделения.`,
     config: {
-      systemInstruction: "Ты профессиональный HR-аналитик. Твоя задача — формировать отчеты с глубоким анализом соответствия бенчмарку. Используй HTML теги <h3>, <p>, <b>.",
+      systemInstruction: "Ты профессиональный HR-аналитик. Пиши только чистый текст с HTML тегами <h3> и <b>. ЗАПРЕЩЕНО использовать markdown (\` \` \`).",
     }
   });
 
+  // Fix: Access .text as property directly, not as a method.
   return response.text || "Ошибка генерации отчета";
 };
 
+// Fix: Corrected response property access.
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
@@ -75,7 +63,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
               properties: {
                 id: { type: Type.STRING },
                 text: { type: Type.STRING },
-                type: { type: Type.STRING },
+                type: { type: Type.STRING, description: "Must be 'scenario'" },
                 options: {
                   type: Type.ARRAY,
                   items: {
@@ -83,7 +71,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
                     properties: {
                       id: { type: Type.STRING },
                       text: { type: Type.STRING },
-                      value: { type: Type.NUMBER }
+                      value: { type: Type.NUMBER, description: "Points from 0 to 2" }
                     },
                     required: ["id", "text", "value"]
                   }
@@ -97,7 +85,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
             properties: {
               id: { type: Type.STRING },
               text: { type: Type.STRING },
-              type: { type: Type.STRING }
+              type: { type: Type.STRING, description: "Must be 'text'" }
             },
             required: ["id", "text", "type"]
           }
@@ -108,6 +96,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
   });
 
   try {
+    // Fix: Access .text as property directly.
     const data = JSON.parse(response.text || "{}");
     return {
       jobId: "",
@@ -117,6 +106,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
       workSampleQuestion: data.workSampleQuestion
     };
   } catch (e) {
+    console.error("Failed to parse custom questions from AI response", e);
     return null;
   }
 };
