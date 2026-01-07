@@ -1,25 +1,15 @@
-
+import { GoogleGenAI, Type } from "@google/genai";
 import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
+
+// Initialize the Google GenAI client using the required environment variable
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
-async function callAiService(prompt: string): Promise<string> {
-  if (!SCRIPT_URL || SCRIPT_URL.includes('ВАШ_УНИКАЛЬНЫЙ_ID')) {
-    throw new Error("SCRIPT_URL не настроен.");
-  }
-
-  try {
-    const response = await fetch(SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: "PROXY_AI", prompt: prompt })
-    });
-    const data = await response.json();
-    if (data.status === 'success') return data.text;
-    throw new Error(data.message || "Ошибка ИИ");
-  } catch (e: any) { throw new Error(e.message); }
-}
-
+/**
+ * Generates a candidate profile summary report based on test results.
+ * Uses gemini-3-flash-preview for general text summarization.
+ */
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
   const resultsText = results.map(r => {
     let details = '';
@@ -29,24 +19,89 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
   }).join('\n');
 
-  const prompt = `Ты HR-аналитик. Напиши краткий отчет (Сильные стороны, Риски, Вывод). 
-  Кандидат: ${candidateInfo?.name}, Роль: ${candidateInfo?.role}. 
-  РЕЗУЛЬТАТЫ ТЕСТОВ:
-  ${resultsText}
-  
-  ТРЕБОВАНИЯ:
-  1. Обязательно дай развернутую оценку ОТВЕТУ НА КЕЙС (Практическое задание).
-  2. Пиши строго без markdown (никаких тройных кавычек).
-  3. Используй ТОЛЬКО теги <h3> для заголовков и <b> для выделения.`;
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `Ты HR-аналитик. Напиши краткий отчет (Сильные стороны, Риски, Вывод). 
+    Кандидат: ${candidateInfo?.name}, Роль: ${candidateInfo?.role}. 
+    РЕЗУЛЬТАТЫ ТЕСТОВ:
+    ${resultsText}
+    
+    ТРЕБОВАНИЯ:
+    1. Обязательно дай развернутую оценку ОТВЕТУ НА КЕЙС (Практическое задание).
+    2. Пиши строго без markdown (никаких тройных кавычек).
+    3. Используй ТОЛЬКО теги <h3> для заголовков и <b> для выделения.`,
+    config: {
+      systemInstruction: "Ты профессиональный HR-аналитик. Пиши только чистый текст с HTML тегами <h3> и <b>. ЗАПРЕЩЕНО использовать markdown (```).",
+    }
+  });
 
-  return await callAiService(prompt);
+  return response.text || "Ошибка генерации отчета";
 };
 
+/**
+ * Generates custom test questions (SJT and Work Sample) for a job role.
+ * Uses gemini-3-pro-preview for complex reasoning and structure generation.
+ */
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
-  const prompt = `Ты HR-методолог. Создай тест для вакансии "${jobRole}". Проблемы: "${challenges}". Верни строго JSON: { "sjtQuestions": [...], "workSampleQuestion": {...} }. JSON должен содержать 4 вопроса SJT и 1 практическое задание.`;
-  const responseText = await callAiService(prompt);
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview',
+    contents: `Ты HR-методолог. Создай тест для вакансии "${jobRole}". Проблемы: "${challenges}". Верни строго JSON. JSON должен содержать 4 вопроса SJT и 1 практическое задание.`,
+    config: {
+      systemInstruction: "Ты HR-методолог. Твоя задача — создавать качественные психологические и ситуационные тесты.",
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          sjtQuestions: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                text: { type: Type.STRING },
+                type: { type: Type.STRING, description: "Must be 'scenario'" },
+                options: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      id: { type: Type.STRING },
+                      text: { type: Type.STRING },
+                      value: { type: Type.NUMBER, description: "Points from 0 to 2" }
+                    },
+                    required: ["id", "text", "value"]
+                  }
+                }
+              },
+              required: ["id", "text", "type", "options"]
+            }
+          },
+          workSampleQuestion: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              text: { type: Type.STRING },
+              type: { type: Type.STRING, description: "Must be 'text'" }
+            },
+            required: ["id", "text", "type"]
+          }
+        },
+        required: ["sjtQuestions", "workSampleQuestion"]
+      }
+    }
+  });
+
   try {
-    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
-  } catch (e) { return null; }
+    const data = JSON.parse(response.text || "{}");
+    return {
+      jobId: "",
+      jobTitle: jobRole,
+      company: "",
+      sjtQuestions: data.sjtQuestions,
+      workSampleQuestion: data.workSampleQuestion
+    };
+  } catch (e) {
+    console.error("Failed to parse custom questions from AI response", e);
+    return null;
+  }
 };
