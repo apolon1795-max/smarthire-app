@@ -1,8 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { TestResult, CandidateInfo, CustomTestConfig } from "./types";
+import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../types";
 
-// Безопасное получение API ключа
 const getApiKey = () => {
   try {
     return process.env.API_KEY || '';
@@ -15,8 +14,10 @@ const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
-// Fix: Escaped backticks and corrected text property access.
-export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
+/**
+ * Генерирует расширенный профессиональный отчет.
+ */
+export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo, benchmark?: BenchmarkData): Promise<string> => {
   const resultsText = results.map(r => {
     let details = '';
     if (r.sectionId === 'conscientiousness') details = ` (HEXACO: ${r.hexacoProfile?.map(h => `${h.code}=${h.average}`).join(', ')})`;
@@ -25,27 +26,57 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
   }).join('\n');
 
+  const benchmarkText = benchmark ? `
+  ЭТАЛОННЫЙ ПРОФИЛЬ (К чему мы стремимся):
+  - Целевой интеллект (IQ): ${benchmark.iq} из 12
+  - Целевая надежность (Добросовестность): ${benchmark.reliability}%
+  - Целевой балл за ситуационный кейс (SJT): ${benchmark.sjt} из 8
+  ` : "Эталон не задан.";
+
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Ты HR-аналитик. Напиши краткий отчет (Сильные стороны, Риски, Вывод). 
+    contents: `Ты — элитный HR-методолог и эксперт по оценке персонала. Составь МАКСИМАЛЬНО ОБШИРНЫЙ, ГЛУБОКИЙ и профессиональный аналитический отчет.
+    
     Кандидат: ${candidateInfo?.name}, Роль: ${candidateInfo?.role}. 
-    РЕЗУЛЬТАТЫ ТЕСТОВ:
+    
+    ${benchmarkText}
+
+    РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ КАНДИДАТА:
     ${resultsText}
     
-    ТРЕБОВАНИЯ:
-    1. Обязательно дай развернутую оценку ОТВЕТУ НА КЕЙС (Практическое задание).
-    2. Пиши строго без markdown (никаких тройных кавычек).
-    3. Используй ТОЛЬКО теги <h3> для заголовков и <b> для выделения.`,
+    СТРУКТУРА ОТЧЕТА (используй ТОЛЬКО теги <h3> для разделов):
+    
+    1. <h3>Детальный анализ соответствия (Benchmark Analysis)</h3>
+    Проведи глубокое сравнение по каждой метрике. Где кандидат превзошел эталон, а где наблюдается "провал"? Напиши 2-3 абзаца о том, как эти отклонения повлияют на работу в конкретной роли.
+    
+    2. <h3>Психологический профиль и soft-skills</h3>
+    На основе данных HEXACO опиши поведенческую модель. Насколько он устойчив к стрессу? Склонен ли к интригам или честен? Как он будет общаться с коллегами? (Минимум 2 абзаца).
+    
+    3. <h3>Мотивационные триггеры и ценности</h3>
+    Разбери его драйверы. Что заставит этого человека работать на 200%? А из-за чего он уволится через месяц? Сопоставь его ценности с типичной корпоративной культурой.
+    
+    4. <h3>Разбор практического кейса</h3>
+    Дай экспертную оценку его решению задачи. Насколько оно зрелое? Видит ли он системные риски?
+    
+    5. <h3>Инструкция для руководителя</h3>
+    Дай 3 конкретных совета будущему боссу: как этого человека онбордить, как контролировать и как хвалить.
+    
+    6. <h3>Итоговое решение</h3>
+    Аргументированный вердикт: нанимать или нет, и какие риски мы принимаем.
+    
+    ВАЖНЫЕ ТРЕБОВАНИЯ К ОФОРМЛЕНИЮ:
+    - Текст должен быть ОБЪЕМНЫМ. Не менее 500 слов.
+    - КАЖДЫЙ абзац должен быть обернут в тег <p>. 
+    - Используй <b> для акцентов.
+    - ЗАПРЕЩЕНО использовать markdown (\` \` \`), только чистый HTML (h3, p, b).`,
     config: {
-      systemInstruction: "Ты профессиональный HR-аналитик. Пиши только чистый текст с HTML тегами <h3> и <b>. ЗАПРЕЩЕНО использовать markdown (\` \` \`).",
+      systemInstruction: "Ты профессиональный HR-аналитик. Твоя задача — формировать очень подробные, эстетичные и содержательные отчеты. Используй теги <p> для создания визуальных отступов между абзацами.",
     }
   });
 
-  // Fix: Access .text as property directly, not as a method.
   return response.text || "Ошибка генерации отчета";
 };
 
-// Fix: Corrected response property access.
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
@@ -63,7 +94,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
               properties: {
                 id: { type: Type.STRING },
                 text: { type: Type.STRING },
-                type: { type: Type.STRING, description: "Must be 'scenario'" },
+                type: { type: Type.STRING },
                 options: {
                   type: Type.ARRAY,
                   items: {
@@ -71,7 +102,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
                     properties: {
                       id: { type: Type.STRING },
                       text: { type: Type.STRING },
-                      value: { type: Type.NUMBER, description: "Points from 0 to 2" }
+                      value: { type: Type.NUMBER }
                     },
                     required: ["id", "text", "value"]
                   }
@@ -85,7 +116,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
             properties: {
               id: { type: Type.STRING },
               text: { type: Type.STRING },
-              type: { type: Type.STRING, description: "Must be 'text'" }
+              type: { type: Type.STRING }
             },
             required: ["id", "text", "type"]
           }
@@ -96,7 +127,6 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
   });
 
   try {
-    // Fix: Access .text as property directly.
     const data = JSON.parse(response.text || "{}");
     return {
       jobId: "",
@@ -106,7 +136,6 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
       workSampleQuestion: data.workSampleQuestion
     };
   } catch (e) {
-    console.error("Failed to parse custom questions from AI response", e);
     return null;
   }
 };
