@@ -2,15 +2,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../types";
 
-const getApiKey = () => {
-  try {
-    return process.env.API_KEY || '';
-  } catch (e) {
-    return '';
-  }
-};
-
-const ai = new GoogleGenAI({ apiKey: getApiKey() });
+// Always use const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
@@ -27,6 +20,7 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
   ЭТАЛОН (Цели): IQ: ${benchmark.iq}, Надежность: ${benchmark.reliability}%, SJT: ${benchmark.sjt}.
   ` : "";
 
+  // Use ai.models.generateContent to query GenAI with both the model name and prompt.
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Ты — элитный HR-методолог. Составь ОБШИРНЫЙ аналитический отчет.
@@ -47,6 +41,7 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     }
   });
 
+  // Access the .text property directly.
   return response.text || "Ошибка генерации";
 };
 
@@ -67,5 +62,6 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
       }
     }
   });
+  // Access the .text property directly.
   try { return JSON.parse(response.text || "{}"); } catch (e) { return null; }
 };
