@@ -4,7 +4,7 @@ import TestRunner from './components/TestRunner';
 import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
-import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw } from 'lucide-react';
+import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw, Trash2 } from 'lucide-react';
 import { SCRIPT_URL } from './services/geminiService';
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -23,6 +23,7 @@ export default function App() {
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [completedSections, setCompletedSections] = useState<string[]>([]);
   const [results, setResults] = useState<TestResult[]>([]);
+  const [isHrMode, setIsHrMode] = useState(false);
   
   const [customJobId, setCustomJobId] = useState<string | null>(null);
   const [testSections, setTestSections] = useState(TEST_DATA);
@@ -36,12 +37,14 @@ export default function App() {
     const savedCandidate = localStorage.getItem('sh_candidate');
     const savedAuth = localStorage.getItem('sh_auth');
     const savedActiveSection = localStorage.getItem('sh_active_section_id');
+    const savedHrFlag = localStorage.getItem('sh_is_hr');
 
     if (savedResults) setResults(JSON.parse(savedResults));
     if (savedCompleted) setCompletedSections(JSON.parse(savedCompleted));
     if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
     if (savedAuth === 'true') setIsAuthenticated(true);
     if (savedActiveSection) setActiveSectionId(savedActiveSection);
+    if (savedHrFlag === 'true') setIsHrMode(true);
 
     const params = new URLSearchParams(window.location.search);
     const jobId = params.get('jobId');
@@ -57,9 +60,10 @@ export default function App() {
     localStorage.setItem('sh_completed', JSON.stringify(completedSections));
     if (candidateInfo) localStorage.setItem('sh_candidate', JSON.stringify(candidateInfo));
     localStorage.setItem('sh_auth', isAuthenticated.toString());
+    localStorage.setItem('sh_is_hr', isHrMode.toString());
     if (activeSectionId) localStorage.setItem('sh_active_section_id', activeSectionId);
     else localStorage.removeItem('sh_active_section_id');
-  }, [results, completedSections, candidateInfo, isAuthenticated, activeSectionId]);
+  }, [results, completedSections, candidateInfo, isAuthenticated, activeSectionId, isHrMode]);
 
   const injectCustomSections = (data: CustomTestConfig, isPreview = false) => {
       const customSections = [...TEST_DATA];
@@ -82,6 +86,7 @@ export default function App() {
       setTestSections(customSections);
       
       if (isPreview) {
+        setIsHrMode(true);
         const info = { name: 'HR Preview', age: '30', department: 'HR Dept', role: data.jobTitle };
         setCandidateInfo(info);
         setIsAuthenticated(true);
@@ -267,14 +272,13 @@ export default function App() {
   
   const resetApp = () => {
     localStorage.clear();
-    // Очищаем стейт
     setIsAuthenticated(false);
     setCandidateInfo(null);
     setResults([]);
     setCompletedSections([]);
     setActiveSectionId(null);
     setShowHrBuilder(false);
-    // Возвращаем чистый URL без параметров
+    setIsHrMode(false);
     window.location.href = window.location.pathname;
   };
 
@@ -369,7 +373,7 @@ export default function App() {
           </form>
           
           <button onClick={resetApp} className="mt-8 text-slate-500 hover:text-white text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 mx-auto transition-colors">
-            <RefreshCcw size={14}/> Вернуться в главное меню
+            <RefreshCcw size={14}/> СБРОСИТЬ И ВЫЙТИ
           </button>
         </div>
       </div>
@@ -389,23 +393,21 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
       <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center relative">
-        <div className="absolute top-4 right-4">
+        <div className="absolute top-4 right-4 flex items-center gap-2">
+           {isHrMode && (
+             <button onClick={handleAutofillAll} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-900/40">
+               <Wand2 size={14}/> МАГИЯ (АВТОЗАПОЛНЕНИЕ)
+             </button>
+           )}
            <button onClick={resetApp} className="flex items-center gap-2 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all">
              <LogOut size={14}/> ВЫЙТИ
            </button>
         </div>
         <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>.</p>
-        
-        {candidateInfo?.name === 'HR Preview' && (
-          <div className="mt-6">
-            <button onClick={handleAutofillAll} className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold shadow-xl shadow-indigo-900/40 transition-all animate-bounce">
-              <Wand2 size={20}/> МАГИЧЕСКОЕ АВТОЗАПОЛНЕНИЕ (ПРЕВЬЮ)
-            </button>
-          </div>
-        )}
       </header>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-24">
+      
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {testSections.map((section) => {
             const isCompleted = completedSections.includes(section.id);
@@ -424,6 +426,12 @@ export default function App() {
           })}
         </div>
       </main>
+
+      <footer className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 text-center">
+         <button onClick={resetApp} className="inline-flex items-center gap-2 text-slate-700 hover:text-red-500/60 transition-colors text-xs font-bold uppercase tracking-widest">
+           <Trash2 size={14}/> Очистить все кэшированные данные (Экстренно)
+         </button>
+      </footer>
     </div>
   );
 }
