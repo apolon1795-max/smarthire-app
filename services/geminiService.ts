@@ -1,40 +1,39 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
 /**
- * ВАЖНО: При деплое на GitHub замените значение ниже на вашу реальную ссылку Web App из Google Script.
+ * ССЫЛКА НА ВАШ БЭКЕНД (Google Apps Script)
  */
 export const SCRIPT_URL = 'https://script.google.com/macros/s/1lt16LNgMK_vU_CdXBR7AV3FZ0g8ZT6GFq84M5K0oGoQ/exec';
 
-// Функция для безопасного получения клиента ИИ
-const getAIClient = () => {
-  let apiKey = null;
-
+/**
+ * Основная функция вызова ИИ через ваш прокси-скрипт.
+ * Использует YandexGPT (настроено на стороне Google Script).
+ */
+async function callAiService(prompt: string): Promise<string> {
   try {
-    // Пытаемся получить ключ стандартным способом
-    apiKey = process.env.API_KEY;
-  } catch (e) {
-    // В браузере process может быть не определен. 
-    // Проверяем альтернативные источники (Vite и глобальные объекты)
-    // @ts-ignore
-    apiKey = window.process?.env?.API_KEY || window.API_KEY;
+    const response = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ 
+        action: "PROXY_AI", 
+        prompt: prompt,
+        useYandex: true // Явно указываем использовать Яндекс
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.status === 'success') {
+      return data.text;
+    } else {
+      throw new Error(data.message || "Ошибка на стороне Google Script");
+    }
+  } catch (e: any) {
+    console.error("AI Service Error:", e);
+    throw new Error(`Не удалось получить ответ от ИИ: ${e.message}`);
   }
-
-  // Если ключ не найден, проверяем специфичные для Vite переменные (как на скриншоте пользователя)
-  if (!apiKey) {
-    try {
-      // @ts-ignore
-      apiKey = import.meta.env?.VITE_API_KEY || import.meta.env?.API_KEY;
-    } catch (e) {}
-  }
-
-  if (!apiKey) {
-    throw new Error("API_KEY не найден. Проверьте настройки переменных окружения в панели хостинга (Timeweb).");
-  }
-
-  return new GoogleGenAI({ apiKey });
-};
+}
 
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
   const resultsText = results.map(r => {
@@ -49,99 +48,40 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
   }).join('\n');
 
   const prompt = `
-    Ты — ведущий эксперт по оценке персонала. 
-    Напиши краткий, но глубокий психологический отчет по кандидату на основе тестов.
-    Кандидат: ${candidateInfo?.name || "Соискатель"}, Должность: ${candidateInfo?.role || "Не указана"}.
+    Ты — ведущий HR-эксперт. Напиши психологический отчет по кандидату на основе результатов тестов.
+    Кандидат: ${candidateInfo?.name || "Соискатель"}
+    Должность: ${candidateInfo?.role || "Не указана"}
     
-    Результаты тестов:
+    Результаты:
     ${resultsText}
     
-    Сделай упор на:
-    1. Сильные стороны.
-    2. Риски/зоны контроля.
-    3. Рекомендацию: нанимать или нет.
-    
-    Используй HTML-теги <h3> для заголовков и <b> для жирного текста.
+    Сделай краткий отчет: сильные стороны, потенциальные риски и итоговый вывод.
+    Используй HTML-теги <h3> для заголовков и <b> для выделения.
   `;
 
-  try {
-    const ai = getAIClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-    });
-    return response.text || "Не удалось сгенерировать отчет.";
-  } catch (e: any) {
-    console.error("Gemini Error:", e);
-    return `Ошибка анализа: ${e.message}. Проверьте настройки API ключа в панели хостинга.`;
-  }
+  return await callAiService(prompt);
 };
 
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const prompt = `
-    Ты эксперт-методолог. Разработай тест для вакансии "${jobRole}".
-    Проблематика: "${challenges}"
-
-    Создай:
-    1. 4 SJT вопроса (ситуации выбора).
-    2. 1 практический кейс (Work Sample).
+    Ты эксперт-методолог. Создай тест для вакансии "${jobRole}".
+    Контекст/проблемы: "${challenges}"
     
-    Верни строго в формате JSON.
+    Верни строго JSON объект с двумя полями:
+    1. sjtQuestions: массив из 4 объектов (id, text, type: "scenario", options: массив из 3 объектов {id, text, value: от 0 до 2}).
+    2. workSampleQuestion: объект (id, text, type: "text").
+    
+    Важно: не пиши ничего, кроме чистого JSON.
   `;
   
+  const responseText = await callAiService(prompt);
+  
   try {
-    const ai = getAIClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            sjtQuestions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  text: { type: Type.STRING },
-                  type: { type: Type.STRING },
-                  options: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        id: { type: Type.STRING },
-                        text: { type: Type.STRING },
-                        value: { type: Type.NUMBER }
-                      },
-                      required: ["id", "text", "value"]
-                    }
-                  }
-                },
-                required: ["id", "text", "type", "options"]
-              }
-            },
-            workSampleQuestion: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                text: { type: Type.STRING },
-                type: { type: Type.STRING }
-              },
-              required: ["id", "text", "type"]
-            }
-          },
-          required: ["sjtQuestions", "workSampleQuestion"]
-        }
-      }
-    });
-
-    if (!response.text) return null;
-    return JSON.parse(response.text);
-  } catch (error: any) {
-    console.error("Methodology Generation Error:", error);
-    throw new Error(`Ошибка генерации: ${error.message}`);
+    // Чистим ответ от возможных markdown-оберток ```json ... ```
+    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  } catch (e) {
+    console.error("Ошибка парсинга JSON от ИИ:", responseText);
+    throw new Error("ИИ вернул некорректный формат данных. Попробуйте еще раз.");
   }
 };
