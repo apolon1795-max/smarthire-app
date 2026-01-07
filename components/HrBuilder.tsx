@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { generateCustomQuestions, generateCandidateProfile } from '../services/geminiService';
 import { CustomTestConfig, JobListing, BenchmarkData } from '../types';
-// Added AlertTriangle to imports
 import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Target, Zap, RefreshCw, SlidersHorizontal, User, ShieldCheck, Activity, Check, AlertTriangle } from 'lucide-react';
 
 interface HrBuilderProps {
@@ -28,9 +27,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
   const [isEditingBenchmark, setIsEditingBenchmark] = useState(false);
   const [isSavingBenchmark, setIsSavingBenchmark] = useState(false);
   const [benchmark, setBenchmark] = useState<BenchmarkData>(DEFAULT_BENCHMARK);
-
-  const [role, setRole] = useState('');
-  const [challenges, setChallenges] = useState('');
 
   useEffect(() => { if (view === 'dashboard') loadJobs(); }, [view]);
 
@@ -59,17 +55,25 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
       
       const parsedCandidates = Array.isArray(data) ? data.map(c => {
         let hexaco = [];
+        let motivation = null;
         try {
-          // Важно: проверяем не пустой ли JSON
+          // Парсим HEXACO
           const hStr = (c.hexacoJson && c.hexacoJson !== '{}') ? c.hexacoJson : '[]';
           hexaco = typeof hStr === 'string' ? JSON.parse(hStr) : hStr;
           if (!Array.isArray(hexaco)) hexaco = [];
         } catch(e) { hexaco = []; }
+
+        try {
+          // Парсим Motivation для ИИ-анализа
+          const mStr = (c.motivationJson && c.motivationJson !== '{}') ? c.motivationJson : 'null';
+          motivation = typeof mStr === 'string' ? JSON.parse(mStr) : mStr;
+        } catch(e) { motivation = null; }
         
         return { 
           ...c, 
           jobBenchmark: currentBenchmark,
-          hexaco
+          hexaco,
+          motivation
         };
       }) : [];
 
@@ -86,7 +90,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ action: 'UPDATE_BENCHMARK', jobId: activeJobId, benchmark })
       });
-      // Обновляем текущих кандидатов на лету
       setJobCandidates(prev => prev.map(c => ({ ...c, jobBenchmark: benchmark })));
       setIsEditingBenchmark(false);
     } catch (e) { alert("Не удалось сохранить эталон."); }
@@ -110,16 +113,16 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     setIsReanalyzing(true);
     try {
       const mockResults = [
-        { sectionId: 'intelligence', title: 'IQ', percentage: (activeReport.iq/12)*100, rawScore: activeReport.iq },
+        { sectionId: 'intelligence', title: 'IQ', percentage: (activeReport.iq / 12) * 100, rawScore: activeReport.iq },
         { sectionId: 'conscientiousness', title: 'Надежность', percentage: activeReport.reliability, rawScore: activeReport.reliability, hexacoProfile: activeReport.hexaco },
-        { sectionId: 'sjt', title: 'Кейс-тест', percentage: (activeReport.sjtScore/8)*100, rawScore: activeReport.sjtScore },
+        { sectionId: 'sjt', title: 'Кейс-тест', percentage: (activeReport.sjtScore / 8) * 100, rawScore: activeReport.sjtScore },
         { sectionId: 'motivation', title: 'Драйверы', percentage: 100, motivationProfile: activeReport.motivation }
       ] as any;
       const newReport = await generateCandidateProfile(mockResults, { name: activeReport.name, role: activeReport.role } as any, benchmark);
       setActiveReport({ ...activeReport, aiReport: newReport });
     } catch (e) { 
-      console.error(e);
-      alert("Ошибка ИИ. Проверьте соединение или API_KEY."); 
+      console.error("AI Error:", e);
+      alert("Ошибка ИИ. Проверьте API_KEY или соединение."); 
     }
     finally { setIsReanalyzing(false); }
   };
@@ -130,15 +133,13 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
 
   return (
     <div className="max-w-7xl mx-auto bg-slate-950 min-h-screen p-6 text-slate-100">
-      {/* МОДАЛКА ОТЧЕТА */}
       {activeReport && (
         <div className="fixed inset-0 z-[10000] bg-slate-950/98 backdrop-blur-2xl p-4 sm:p-10 overflow-y-auto custom-scrollbar">
-          <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-[3rem] p-8 lg:p-14 shadow-3xl animate-in zoom-in-95 duration-500">
+          <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-[3rem] p-8 lg:p-14 shadow-3xl animate-in zoom-in-95 duration-500 relative">
             
-            {/* ИСПРАВЛЕННЫЙ ЗАГОЛОВОК МОДАЛКИ (Без перекрытий) */}
             <div className="flex flex-col sm:flex-row justify-between items-start gap-6 mb-12 border-b border-slate-800 pb-10">
               <div className="flex items-center gap-6">
-                <button onClick={() => setActiveReport(null)} className="bg-slate-800 hover:bg-slate-700 p-4 rounded-2xl text-white transition-all flex items-center justify-center">
+                <button onClick={() => setActiveReport(null)} className="bg-slate-800 hover:bg-slate-700 p-4 rounded-2xl text-white transition-all">
                   <ArrowLeft size={24}/>
                 </button>
                 <div>
@@ -156,7 +157,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
               </button>
             </div>
 
-            {/* МЕТРИКИ */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
                <div className="bg-slate-950 p-8 rounded-[2rem] border border-slate-800">
                   <div className="text-[10px] text-slate-500 font-black uppercase mb-4 tracking-widest">Интеллект (IQ)</div>
@@ -177,11 +177,13 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                </div>
                <div className="bg-slate-950 p-8 rounded-[2rem] border border-slate-800">
                   <div className="text-[10px] text-slate-500 font-black uppercase mb-4 tracking-widest">Драйверы</div>
-                  <div className="text-xs font-black text-slate-300 leading-relaxed uppercase truncate">{activeReport.drivers || "Не определено"}</div>
+                  {/* Убрано 'truncate' для отображения полного текста */}
+                  <div className="text-xs font-black text-slate-300 leading-relaxed uppercase overflow-hidden">
+                    {activeReport.drivers || "Не определено"}
+                  </div>
                </div>
             </div>
 
-            {/* HEXACO */}
             <div className="mb-14">
               <h3 className="text-white font-black text-sm uppercase tracking-widest mb-8 flex items-center gap-3">
                 <Activity size={20} className="text-blue-500"/> 6 Граней личности (HEXACO)
@@ -194,7 +196,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                       <span className="text-blue-400">{Math.round(h.percentage || 0)}%</span>
                     </div>
                     <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${h.percentage || 0}%` }} />
+                      <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${Math.max(2, h.percentage || 0)}%` }} />
                     </div>
                   </div>
                 )) : (
@@ -223,7 +225,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* ШАПКА КАБИНЕТА */}
       <div className="flex justify-between items-center mb-10 pb-6 border-b border-slate-800">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-blue-600/20 rounded-2xl text-blue-400"><BarChart size={32} /></div>
@@ -232,7 +233,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         <button onClick={onExit} className="text-slate-400 hover:text-white flex items-center gap-2 text-sm font-bold bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl"><LogOut size={18} /> ВЫЙТИ</button>
       </div>
 
-      {/* КАНДИДАТЫ И ЭТАЛОН */}
       {view === 'manage' && (
         <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -264,7 +264,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                     <input type="range" min="0" max="8" value={benchmark.sjt} onChange={e => setBenchmark({...benchmark, sjt: parseInt(e.target.value)})} className="w-full h-1 bg-slate-800 appearance-none accent-blue-500 cursor-pointer" />
                   </div>
                 </div>
-                <p className="mt-8 text-[10px] text-slate-600 font-bold uppercase text-center italic">Данные будут сохранены в облаке и применятся при расчете процента соответствия.</p>
              </div>
            )}
 
@@ -306,7 +305,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* СПИСОК ВАКАНСИЙ (Главная) */}
       {view === 'dashboard' && (
         <div className="space-y-8 animate-in fade-in duration-500">
           <div className="flex justify-between items-end">
