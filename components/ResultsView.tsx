@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { TestResult, CandidateInfo } from '../types';
 import { generateCandidateProfile } from '../services/geminiService';
-import { Loader2, CheckCircle, ShieldCheck, Download } from 'lucide-react';
+import { Loader2, CheckCircle, ShieldCheck, Download, RotateCcw } from 'lucide-react';
 
 interface ResultsViewProps {
   results: TestResult[];
@@ -11,12 +11,13 @@ interface ResultsViewProps {
   scriptUrl: string;
   isHrView?: boolean;
   jobId?: string;
+  onRetake?: () => void; // Новое свойство для пересдачи
 }
 
-const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onReset, scriptUrl, isHrView, jobId }) => {
+const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onReset, scriptUrl, isHrView, jobId, onRetake }) => {
   const [analysis, setAnalysis] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(true);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'done'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
   const hasSaved = useRef(false);
 
   // Глубокая очистка от markdown
@@ -71,9 +72,21 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onRes
     };
 
     try {
-      await fetch(scriptUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) });
-      setSaveStatus('done');
-    } catch (e) { console.error(e); }
+      const response = await fetch(scriptUrl, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain' }, 
+        body: JSON.stringify(payload) 
+      });
+      const data = await response.json();
+      if (data.status === 'success') {
+        setSaveStatus('done');
+      } else {
+        setSaveStatus('error');
+      }
+    } catch (e) { 
+      console.error(e); 
+      setSaveStatus('error');
+    }
   };
 
   if (isAnalyzing) return (
@@ -92,11 +105,26 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onRes
         </div>
         <h1 className="text-3xl font-black text-white mb-4">ТЕСТ ПРОЙДЕН!</h1>
         <p className="text-slate-400 leading-relaxed mb-10">Спасибо за уделенное время. Ваши результаты переданы в HR-отдел компании. Мы свяжемся с вами после проверки.</p>
+        
         <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700 mb-8 flex items-center justify-between">
            <span className="text-xs font-bold text-slate-500 uppercase">Синхронизация:</span>
-           {saveStatus === 'done' ? <span className="text-xs font-bold text-green-400 flex items-center gap-1 uppercase"><CheckCircle size={14}/> Ок</span> : <span className="text-xs font-bold text-blue-400 animate-pulse uppercase">Загрузка...</span>}
+           {saveStatus === 'done' ? (
+             <span className="text-xs font-bold text-green-400 flex items-center gap-1 uppercase"><CheckCircle size={14}/> Ок</span>
+           ) : saveStatus === 'error' ? (
+             <span className="text-xs font-bold text-red-400 flex items-center gap-1 uppercase">Ошибка сохранения</span>
+           ) : (
+             <span className="text-xs font-bold text-blue-400 animate-pulse uppercase">Загрузка...</span>
+           )}
         </div>
-        <button onClick={onReset} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-xl">НА ГЛАВНУЮ</button>
+
+        <div className="space-y-3">
+          <button onClick={onReset} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/20">НА ГЛАВНУЮ</button>
+          {onRetake && (
+            <button onClick={onRetake} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-4 rounded-xl transition-all">
+              <RotateCcw size={18}/> ПРОЙТИ ЗАНОВО
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -109,7 +137,12 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onRes
            <h1 className="text-2xl font-bold text-white uppercase tracking-tight">Отчёт: {candidateInfo?.name}</h1>
            <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">{candidateInfo?.role}</p>
         </div>
-        <button onClick={() => window.print()} className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-500 transition-all shadow-lg"><Download size={20}/></button>
+        <div className="flex gap-2">
+          {onRetake && (
+             <button onClick={onRetake} title="Сбросить и перепройти" className="bg-slate-800 text-slate-400 p-3 rounded-xl hover:text-white transition-all border border-slate-700"><RotateCcw size={20}/></button>
+          )}
+          <button onClick={() => window.print()} title="Печать отчета" className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-500 transition-all shadow-lg"><Download size={20}/></button>
+        </div>
       </div>
       
       <div className="bg-slate-950 p-8 rounded-2xl border border-slate-800 text-slate-200 text-sm leading-relaxed overflow-hidden">
