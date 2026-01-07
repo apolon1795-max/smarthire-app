@@ -28,7 +28,6 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
   }).join('\n');
 
-  // Fix: Corrected multiline template literal and escaped triple backticks to prevent syntax issues
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `Ты ведущий HR-аналитик. Проанализируй данные кандидата и составь профессиональное заключение.
@@ -44,15 +43,16 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     4. <h3>Итоговый вывод</h3> - Нанимать или нет.
     
     ТРЕБОВАНИЯ К ОФОРМЛЕНИЮ:
-    - Пиши развернуто, разделяй мысли на абзацы (тег <p> или просто пустая строка).
-    - Используй <b> для важных качеств.
-    - ЗАПРЕЩЕНО использовать markdown (\`\`\`), только HTML теги.`,
+    - ОБЯЗАТЕЛЬНО разделяй текст на логические блоки.
+    - КАЖДЫЙ абзац должен быть обернут в тег <p>.
+    - Между абзацами должно быть много свободного пространства.
+    - Используй <b> для выделения ключевых компетенций и выводов.
+    - ЗАПРЕЩЕНО использовать markdown (\`\`\`), только чистый HTML (h3, p, b).`,
     config: {
-      systemInstruction: "Ты профессиональный HR-аналитик. Пиши только чистый текст с HTML тегами <h3> и <b>. Твой стиль — экспертный, лаконичный, но глубокий. ЗАПРЕЩЕНО использовать markdown (\`\`\`).",
+      systemInstruction: "Ты профессиональный HR-аналитик. Твоя задача — формировать отчеты с отличной читаемостью. Используй теги <h3> для заголовков и <p> для каждого абзаца. Твой стиль — экспертный и структурированный. ЗАПРЕЩЕНО использовать markdown.",
     }
   });
 
-  // Fix: Access .text as a property, not a method
   return response.text || "Ошибка генерации отчета";
 };
 
@@ -110,7 +110,6 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
   });
 
   try {
-    // Fix: Access .text as a property, not a method
     const data = JSON.parse(response.text || "{}");
     return {
       jobId: "",
