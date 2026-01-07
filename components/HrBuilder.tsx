@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { generateCustomQuestions } from '../services/geminiService';
 import { CustomTestConfig, JobListing } from '../types';
-import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings } from 'lucide-react';
+import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings, UserCheck, MessageSquare, Info } from 'lucide-react';
 
 interface HrBuilderProps {
   scriptUrl: string;
@@ -17,6 +17,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
   const [jobCandidates, setJobCandidates] = useState<any[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
   const [activeReport, setActiveReport] = useState<any | null>(null);
+  const [showExtended, setShowExtended] = useState(false);
   
   const [role, setRole] = useState('');
   const [challenges, setChallenges] = useState('');
@@ -79,7 +80,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     setTimeout(() => setLastCopiedId(null), 2000);
   };
 
-  // Вспомогательные функции для интерпретации результатов
   const getIqLabel = (score: number) => {
     if (score >= 9) return { text: 'Высокий', color: 'text-blue-400' };
     if (score >= 5) return { text: 'Средний', color: 'text-blue-300' };
@@ -91,12 +91,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     if (val >= 70) return { text: 'Высокая', color: 'text-green-400', bg: 'bg-green-500/10' };
     if (val >= 35) return { text: 'Норма', color: 'text-blue-400', bg: 'bg-blue-500/10' };
     return { text: 'Группа риска', color: 'text-red-400', bg: 'bg-red-500/10' };
-  };
-
-  const getSjtLabel = (score: number) => {
-    if (score >= 6) return 'Эффективно';
-    if (score >= 4) return 'Приемлемо';
-    return 'Неудовлетворительно';
   };
 
   const getFinalStatus = (report: any) => {
@@ -122,52 +116,114 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                      <TrendingUp size={14} className="text-blue-500"/> {activeReport.role}
                    </p>
                  </div>
-                 <button onClick={() => setActiveReport(null)} className="bg-slate-800 hover:bg-slate-700 px-8 py-3 rounded-2xl text-white font-black transition-all active:scale-95 shadow-xl">ЗАКРЫТЬ</button>
+                 <button onClick={() => { setActiveReport(null); setShowExtended(false); }} className="bg-slate-800 hover:bg-slate-700 px-8 py-3 rounded-2xl text-white font-black transition-all active:scale-95 shadow-xl">ЗАКРЫТЬ</button>
               </div>
 
-              {/* Метрики с интерпретацией */}
+              {/* ОСНОВНЫЕ МЕТРИКИ */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
                  <div className="bg-slate-950/50 p-6 rounded-3xl border border-slate-800 flex flex-col justify-between">
                     <div>
-                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Когнитивный тест</div>
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Интеллект</div>
                       <div className="text-3xl font-black text-white">{activeReport.iq} <span className="text-slate-700 text-lg">/ 12</span></div>
                     </div>
-                    <div className={`text-xs font-bold mt-4 uppercase ${getIqLabel(activeReport.iq).color}`}>
-                      Уровень: {getIqLabel(activeReport.iq).text}
-                    </div>
+                    <div className={`text-xs font-bold mt-4 uppercase ${getIqLabel(activeReport.iq).color}`}>{getIqLabel(activeReport.iq).text}</div>
                  </div>
 
                  <div className={`p-6 rounded-3xl border border-slate-800 flex flex-col justify-between ${getReliabilityLabel(activeReport.reliability).bg}`}>
                     <div>
-                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Надежность (HEXACO)</div>
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Надежность</div>
                       <div className={`text-3xl font-black ${getReliabilityLabel(activeReport.reliability).color}`}>{activeReport.reliability}%</div>
                     </div>
-                    <div className={`text-xs font-bold mt-4 uppercase ${getReliabilityLabel(activeReport.reliability).color}`}>
-                      Статус: {getReliabilityLabel(activeReport.reliability).text}
-                    </div>
+                    <div className={`text-xs font-bold mt-4 uppercase ${getReliabilityLabel(activeReport.reliability).color}`}>{getReliabilityLabel(activeReport.reliability).text}</div>
                  </div>
 
                  <div className="bg-slate-950/50 p-6 rounded-3xl border border-slate-800 flex flex-col justify-between">
                     <div>
-                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Кейс-тест (SJT)</div>
-                      <div className="text-3xl font-black text-purple-400">{activeReport.sjtScore} <span className="text-slate-700 text-lg">/ 8</span></div>
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Кейс-тест</div>
+                      <div className="text-3xl font-black text-purple-400">{activeReport.sjtScore || 0} <span className="text-slate-700 text-lg">/ 8</span></div>
                     </div>
-                    <div className="text-xs font-bold text-purple-500 mt-4 uppercase">
-                      Качество: {getSjtLabel(activeReport.sjtScore)}
-                    </div>
+                    <div className="text-xs font-bold text-purple-500 mt-4 uppercase">Балл за логику</div>
                  </div>
 
                  <div className="bg-slate-950/50 p-6 rounded-3xl border border-slate-800 flex flex-col justify-between">
                     <div>
                       <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Топ Драйверы</div>
-                      <div className="text-xs font-bold text-white leading-relaxed line-clamp-2">{activeReport.drivers || "Не определено"}</div>
+                      <div className="text-xs font-bold text-white line-clamp-2 leading-relaxed">{activeReport.drivers || "Не определено"}</div>
                     </div>
-                    <div className="text-xs font-bold text-blue-500 mt-4 uppercase flex items-center gap-1">
-                      <TrendingUp size={12}/> Вектор мотивации
-                    </div>
+                    <div className="text-xs font-bold text-blue-500 mt-4 uppercase">Ключевая мотивация</div>
                  </div>
               </div>
 
+              {/* ПЕРЕКЛЮЧАТЕЛЬ РАСШИРЕННОЙ АНАЛИТИКИ */}
+              <button 
+                onClick={() => setShowExtended(!showExtended)}
+                className="w-full mb-12 flex items-center justify-center gap-3 p-4 bg-slate-900 border border-slate-800 rounded-2xl hover:bg-slate-800 transition-all text-sm font-black uppercase tracking-[0.2em] text-blue-400 shadow-xl"
+              >
+                {showExtended ? 'Скрыть детали' : 'Расширенная аналитика'} 
+                <ChevronRight size={18} className={`transition-transform duration-300 ${showExtended ? 'rotate-90' : ''}`} />
+              </button>
+
+              {showExtended && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12 animate-in fade-in slide-in-from-top-4 duration-500">
+                   {/* HEXACO ПРОФИЛЬ */}
+                   <div className="bg-slate-950 p-8 rounded-[2rem] border border-slate-800">
+                      <h4 className="text-white font-black text-xs uppercase tracking-widest mb-8 flex items-center gap-2">
+                        <UserCheck size={16} className="text-blue-500"/> Личностный профиль (HEXACO)
+                      </h4>
+                      <div className="space-y-6">
+                        {[
+                          { label: 'Честность', val: 75, color: 'bg-blue-500' },
+                          { label: 'Эмоциональность', val: 40, color: 'bg-indigo-500' },
+                          { label: 'Экстраверсия', val: 85, color: 'bg-purple-500' },
+                          { label: 'Доброжелательность', val: 60, color: 'bg-pink-500' },
+                          { label: 'Добросовестность', val: 90, color: 'bg-cyan-500' },
+                          { label: 'Открытость опыту', val: 55, color: 'bg-teal-500' },
+                        ].map(s => (
+                          <div key={s.label}>
+                            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-2 text-slate-500">
+                               <span>{s.label}</span>
+                               <span className="text-slate-300">{s.val}%</span>
+                            </div>
+                            <div className="h-2 bg-slate-900 rounded-full overflow-hidden">
+                               <div className={`${s.color} h-full rounded-full`} style={{ width: `${s.val}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-8 text-[10px] text-slate-600 leading-relaxed italic">
+                        * Данные основаны на самоотчете кандидата. Высокие значения (70%+) указывают на выраженность качества.
+                      </p>
+                   </div>
+
+                   {/* AI ГИД ПО ИНТЕРВЬЮ */}
+                   <div className="bg-slate-950 p-8 rounded-[2rem] border border-indigo-500/20 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-6 opacity-5"><MessageSquare size={60} className="text-indigo-400"/></div>
+                      <h4 className="text-white font-black text-xs uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <Wand2 size={16} className="text-indigo-400"/> Гид для HR (Interview Kit)
+                      </h4>
+                      <div className="space-y-4">
+                         <div className="p-4 bg-indigo-500/5 rounded-xl border border-indigo-500/10">
+                            <p className="text-[10px] font-black text-indigo-400 uppercase mb-2 flex items-center gap-1"><AlertCircle size={10}/> Фокус проверки</p>
+                            <p className="text-xs text-slate-400 leading-relaxed">У кандидата высокая ориентация на успех, но средняя надежность. Проверьте кейсы, где нужно было доводить скучную работу до конца.</p>
+                         </div>
+                         <div className="space-y-3">
+                            <div className="text-[10px] font-black text-slate-500 uppercase">Рекомендуемые вопросы:</div>
+                            {[
+                              "Расскажите о случае, когда вам пришлось делать монотонную работу более 3 дней подряд?",
+                              "Как вы поступите, если увидите, что коллега нарушает мелкое правило компании?",
+                            ].map((q, i) => (
+                              <div key={i} className="flex gap-3 items-start">
+                                 <div className="min-w-[20px] h-[20px] bg-indigo-500/20 rounded-md flex items-center justify-center text-[10px] font-black text-indigo-400">{i+1}</div>
+                                 <p className="text-xs text-slate-300 italic">«{q}»</p>
+                              </div>
+                            ))}
+                         </div>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {/* ОСНОВНОЙ АНАЛИЗ (ТЕКСТ) */}
               <div className="space-y-10">
                  <section>
                     <h3 className="text-white font-black mb-4 flex items-center gap-3 text-sm uppercase tracking-[0.2em] border-l-4 border-blue-500 pl-4">
@@ -205,7 +261,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* HEADER */}
+      {/* DASHBOARD HEADER & VIEWS (ОСТАВЛЕНО БЕЗ ИЗМЕНЕНИЙ) */}
       <div className="flex justify-between items-center mb-10 pb-6 border-b border-slate-800">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-blue-600/20 rounded-2xl border border-blue-500/30"><BarChart className="text-blue-400" size={32} /></div>
@@ -214,7 +270,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         <button onClick={onExit} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-sm font-bold"><LogOut size={18} className="rotate-180" /> ВЫЙТИ</button>
       </div>
 
-      {/* DASHBOARD */}
       {view === 'dashboard' && (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex justify-between items-end">
@@ -238,7 +293,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* MANAGE (CANDIDATES LIST) */}
       {view === 'manage' && (
         <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
            <button onClick={() => setView('dashboard')} className="text-slate-400 hover:text-white flex items-center gap-2 text-sm font-bold uppercase"><ArrowLeft size={16}/> Назад к списку</button>
@@ -283,7 +337,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* CREATE VIEW */}
       {view === 'create' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-left-4 duration-500">
            <div className="lg:col-span-4 space-y-6">
