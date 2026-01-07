@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { TEST_DATA, HEXACO_KEY, FACTOR_NAMES, MOTIVATION_MAPPING, MOTIVATION_NAMES, MOTIVATION_BLOCKS, MOTIVATION_DRIVERS_LOGIC } from './data/testData';
 import TestRunner from './components/TestRunner';
@@ -15,10 +16,17 @@ const ICONS: Record<string, React.ReactNode> = {
   work_sample: <PenTool size={28} />
 };
 
-const ACCESS_CODE = 'SMART2025';
+// Реестр кодов компаний
+const COMPANY_CODES: Record<string, string> = {
+  'YANDEX_HR': 'Yandex',
+  'SB_TECH': 'SberDevices',
+  'STARTUP_XYZ': 'FutureCorp',
+  'ADMIN': 'SmartHire'
+};
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentCompany, setCurrentCompany] = useState<string>('');
   const [candidateInfo, setCandidateInfo] = useState<CandidateInfo | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [completedSections, setCompletedSections] = useState<string[]>([]);
@@ -30,26 +38,33 @@ export default function App() {
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [showHrBuilder, setShowHrBuilder] = useState(false);
 
-  const resetApp = () => {
+  const resetApp = (fullReload = false) => {
     localStorage.clear();
     setIsAuthenticated(false);
+    setCurrentCompany('');
     setCandidateInfo(null);
     setResults([]);
     setCompletedSections([]);
     setActiveSectionId(null);
     setShowHrBuilder(false);
     setIsHrMode(false);
-    // Очищаем URL и перезагружаем
-    window.location.href = window.location.pathname;
+    setCustomJobId(null);
+    setTestSections(TEST_DATA);
+
+    if (fullReload) {
+      // Очистка параметров без жесткого редиректа на путь, который может вызвать 404
+      const url = new URL(window.location.href);
+      url.search = '';
+      window.history.replaceState({}, '', url.toString());
+      window.location.reload();
+    }
   };
 
-  // --- INITIAL LOAD & URL OVERRIDES ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     
-    // ЭКСТРЕННЫЙ СБРОС через URL: ?admin=true или ?reset=true
     if (params.get('admin') === 'true' || params.get('reset') === 'true') {
-      resetApp();
+      resetApp(true);
       return;
     }
 
@@ -57,15 +72,19 @@ export default function App() {
     const savedCompleted = localStorage.getItem('sh_completed');
     const savedCandidate = localStorage.getItem('sh_candidate');
     const savedAuth = localStorage.getItem('sh_auth');
+    const savedCompany = localStorage.getItem('sh_company');
     const savedActiveSection = localStorage.getItem('sh_active_section_id');
     const savedHrFlag = localStorage.getItem('sh_is_hr');
+    const savedShowHr = localStorage.getItem('sh_show_hr_builder');
 
     if (savedResults) setResults(JSON.parse(savedResults));
     if (savedCompleted) setCompletedSections(JSON.parse(savedCompleted));
     if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
     if (savedAuth === 'true') setIsAuthenticated(true);
+    if (savedCompany) setCurrentCompany(savedCompany);
     if (savedActiveSection) setActiveSectionId(savedActiveSection);
     if (savedHrFlag === 'true') setIsHrMode(true);
+    if (savedShowHr === 'true') setShowHrBuilder(true);
 
     const jobId = params.get('jobId');
     if (jobId) {
@@ -74,18 +93,20 @@ export default function App() {
     }
   }, []);
 
-  // --- LOCAL STORAGE SYNC ---
   useEffect(() => {
-    if (!candidateInfo && !isAuthenticated && results.length === 0) return;
+    // Сохраняем состояние только если мы не в процессе сброса
+    if (!currentCompany && !isAuthenticated && !showHrBuilder) return;
     
     localStorage.setItem('sh_results', JSON.stringify(results));
     localStorage.setItem('sh_completed', JSON.stringify(completedSections));
     if (candidateInfo) localStorage.setItem('sh_candidate', JSON.stringify(candidateInfo));
     localStorage.setItem('sh_auth', isAuthenticated.toString());
+    localStorage.setItem('sh_company', currentCompany);
     localStorage.setItem('sh_is_hr', isHrMode.toString());
+    localStorage.setItem('sh_show_hr_builder', showHrBuilder.toString());
     if (activeSectionId) localStorage.setItem('sh_active_section_id', activeSectionId);
     else localStorage.removeItem('sh_active_section_id');
-  }, [results, completedSections, candidateInfo, isAuthenticated, activeSectionId, isHrMode]);
+  }, [results, completedSections, candidateInfo, isAuthenticated, activeSectionId, isHrMode, currentCompany, showHrBuilder]);
 
   const injectCustomSections = (data: CustomTestConfig, isPreview = false) => {
       const customSections = [...TEST_DATA];
@@ -113,6 +134,10 @@ export default function App() {
         setCandidateInfo(info);
         setIsAuthenticated(true);
         setShowHrBuilder(false);
+      }
+
+      if (data.company) {
+        setCurrentCompany(data.company);
       }
   };
 
@@ -307,30 +332,45 @@ export default function App() {
   const handleLoginSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    if (formData.get('code') === ACCESS_CODE) setIsAuthenticated(true);
-    else alert("Неверный код доступа");
+    const code = (formData.get('code') as string || '').toUpperCase();
+    
+    if (COMPANY_CODES[code]) {
+      setCurrentCompany(COMPANY_CODES[code]);
+      setIsAuthenticated(true);
+      if (!customJobId) {
+        setShowHrBuilder(true);
+        setIsHrMode(true);
+      }
+    } else {
+      alert("Неверный код доступа компании. Обратитесь к администратору.");
+    }
   };
 
   if (isLoadingConfig) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold animate-pulse">Загрузка портала...</div>;
-  if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} onExit={() => setShowHrBuilder(false)} onTestPreview={handleTestPreview} />;
 
-  // --- FLOATING CONTROL BAR (ALWAYS VISIBLE FOR NAVIGATION) ---
+  // --- FLOATING CONTROL BAR ---
   const ControlBar = () => (
     <div className="fixed top-4 right-4 z-[9999] flex items-center gap-2">
+      {currentCompany && (
+        <div className="bg-blue-600/20 border border-blue-500/30 px-3 py-1 rounded-lg text-[10px] font-black text-blue-400 uppercase tracking-widest hidden sm:block">
+          Company: {currentCompany}
+        </div>
+      )}
       {isHrMode && candidateInfo && (
         <button onClick={handleAutofillAll} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xl shadow-indigo-900/40">
           <Wand2 size={14}/> МАГИЯ (АВТО)
         </button>
       )}
-      {(candidateInfo || isAuthenticated || customJobId) && (
-        <button onClick={resetApp} className="flex items-center gap-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 text-slate-300 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg hover:bg-red-900/40 hover:border-red-500/50">
-          <LogOut size={14}/> ВЫЙТИ В ГЛАВНОЕ МЕНЮ
+      {(candidateInfo || isAuthenticated || customJobId || showHrBuilder) && (
+        <button onClick={() => resetApp(true)} className="flex items-center gap-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 text-slate-300 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg hover:bg-red-900/40 hover:border-red-500/50">
+          <LogOut size={14}/> ВЫЙТИ
         </button>
       )}
     </div>
   );
 
-  // --- RENDERING LOGIC ---
+  if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} company={currentCompany} onExit={() => setShowHrBuilder(false)} onTestPreview={handleTestPreview} />;
+
   if (!customJobId && !isAuthenticated && !candidateInfo) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -342,10 +382,16 @@ export default function App() {
               <h1 className="text-5xl font-extrabold text-white tracking-tight">SmartHire Assessment</h1>
               <p className="text-slate-400 text-lg">Платформа для профессиональной оценки персонала.</p>
            </div>
-           <div className="bg-slate-900/50 p-1 rounded-2xl border border-slate-800">
-             <button onClick={() => setShowHrBuilder(true)} className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-5 rounded-xl shadow-2xl shadow-blue-900/40 transition-all group">
-               <Settings size={24} className="group-hover:rotate-45 transition-transform" /> ВХОД ДЛЯ HR-СПЕЦИАЛИСТА
-             </button>
+           <div className="bg-slate-900/50 p-8 rounded-2xl border border-slate-800">
+             <form onSubmit={handleLoginSubmit} className="space-y-6">
+               <div className="text-left">
+                  <label className="block text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] mb-2 ml-1">Код доступа компании</label>
+                  <input name="code" type="password" required placeholder="НАПР. YANDEX_HR" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-widest font-mono" />
+               </div>
+               <button type="submit" className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-5 rounded-xl shadow-2xl shadow-blue-900/40 transition-all group">
+                 <Settings size={24} className="group-hover:rotate-45 transition-transform" /> ВХОД В HR-КАБИНЕТ
+               </button>
+             </form>
            </div>
            <p className="mt-8 text-slate-600 text-sm">© 2025 SmartHire Solutions.</p>
         </div>
@@ -359,15 +405,13 @@ export default function App() {
         <ControlBar />
         <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
-          <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30">
-            <LogIn className="text-blue-400" size={32} />
-          </div>
+          <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><LogIn className="text-blue-400" size={32} /></div>
           <h1 className="text-2xl font-bold text-white mb-2">Портал Кандидата</h1>
-          <p className="text-slate-400 text-sm mb-8">Введите код доступа из приглашения.</p>
+          <p className="text-slate-400 text-sm mb-8">Для компании: <span className="text-blue-400 font-bold">{currentCompany || "..."}</span></p>
           <form onSubmit={handleLoginSubmit}>
             <div className="relative mb-6">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-              <input name="code" type="password" required placeholder="КОД ДОСТУПА" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-12 pr-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-[0.3em] font-black" />
+              <input name="code" type="password" required placeholder="КОД КОМПАНИИ" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-12 pr-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-[0.3em] font-black" />
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Войти в систему</button>
           </form>
@@ -385,6 +429,7 @@ export default function App() {
           <div className="text-center mb-8">
             <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><UserPlus className="text-blue-400" size={32} /></div>
             <h1 className="text-2xl font-bold text-white mb-2">Анкета Кандидата</h1>
+            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{currentCompany}</p>
           </div>
           <form onSubmit={handleRegistrationSubmit} className="space-y-4">
             <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
@@ -407,7 +452,7 @@ export default function App() {
   }
 
   if (completedSections.length === testSections.length) {
-    return <div className="min-h-screen bg-slate-950 py-8 px-4 sm:px-6"><ResultsView results={results} candidateInfo={candidateInfo} onReset={resetApp} scriptUrl={SCRIPT_URL} /></div>;
+    return <div className="min-h-screen bg-slate-950 py-8 px-4 sm:px-6"><ResultsView results={results} candidateInfo={candidateInfo} onReset={() => resetApp(true)} scriptUrl={SCRIPT_URL} /></div>;
   }
 
   return (
@@ -416,6 +461,9 @@ export default function App() {
       <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center relative">
         <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>.</p>
+        <button onClick={() => setShowHrBuilder(true)} className="mt-8 inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-6 py-3 rounded-2xl text-xs font-bold text-slate-400 hover:text-white hover:border-blue-500/50 transition-all">
+          <Settings size={16} /> ПЕРЕЙТИ В HR-КАБИНЕТ
+        </button>
       </header>
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
@@ -437,12 +485,6 @@ export default function App() {
           })}
         </div>
       </main>
-
-      <footer className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 text-center opacity-30 hover:opacity-100 transition-opacity">
-         <button onClick={resetApp} className="inline-flex items-center gap-2 text-slate-700 hover:text-red-500/60 transition-colors text-xs font-bold uppercase tracking-widest">
-           <Trash2 size={14}/> Очистить все кэшированные данные (Экстренно)
-         </button>
-      </footer>
     </div>
   );
 }
