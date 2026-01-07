@@ -40,10 +40,7 @@ export default function App() {
   const resetApp = (fullReload = false) => {
     localStorage.clear();
     if (fullReload) {
-      const url = new URL(window.location.href);
-      url.search = '';
-      window.history.replaceState({}, '', url.toString());
-      window.location.reload();
+      window.location.href = window.location.origin + window.location.pathname;
     } else {
       setResults([]);
       setCompletedSections([]);
@@ -69,7 +66,6 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const jobId = params.get('jobId');
 
-    // 1. Проверка HR-сессии (самый высокий приоритет)
     const hrAuth = localStorage.getItem('sh_hr_authenticated');
     const savedCompany = localStorage.getItem('sh_company');
     
@@ -81,13 +77,11 @@ export default function App() {
       return;
     }
 
-    // 2. Проверка Кандидат-сессии
     if (jobId) {
       setCustomJobId(jobId);
       setIsAuthenticated(true);
       setIsHrMode(false);
       fetchCustomConfig(jobId);
-      
       const savedCandidate = localStorage.getItem('sh_candidate');
       if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
     }
@@ -194,7 +188,11 @@ export default function App() {
          const vt: any = {};
          Object.entries(ans).forEach(([qId, score]) => { const vc = MOTIVATION_MAPPING[parseInt(qId)]; if (vc && typeof score === 'number') { if (!vt[vc]) vt[vc] = { sum: 0, count: 0 }; vt[vc].sum += score; vt[vc].count += 1; } });
          const vs: any[] = Object.keys(MOTIVATION_NAMES).map(c => ({ code: c, name: MOTIVATION_NAMES[c], score: parseFloat(((vt[c]?.sum || 0) / (vt[c]?.count || 1)).toFixed(1)) }));
-         const ds: DriverScore[] = Object.entries(MOTIVATION_DRIVERS_LOGIC).map(([k, l]) => ({ name: l.name, score: parseFloat((vs.filter(v => l.values.includes(v.code)).reduce((a,v)=>a+v.score,0)/2).toFixed(1)), rank: 0, recommendation: l.hint }));
+         const ds: DriverScore[] = Object.entries(MOTIVATION_DRIVERS_LOGIC).map(([k, l]) => {
+           const relevantValues = vs.filter(v => l.values.includes(v.code));
+           const score = relevantValues.length > 0 ? (relevantValues.reduce((a,v)=>a+v.score,0) / relevantValues.length) : 0;
+           return { name: l.name, score: parseFloat(score.toFixed(1)), rank: 0, recommendation: l.hint };
+         });
          ds.sort((a,b)=>b.score-a.score).forEach((d,i)=>d.rank=i+1);
          return { values: vs, blocks: [], drivers: ds, topDrivers: ds.slice(0, 3) };
        })(answers);
@@ -217,11 +215,9 @@ export default function App() {
 
   if (isLoadingConfig) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold animate-pulse">Загрузка SmartHire...</div>;
 
-  // ГЛАВНЫЙ ЭКРАН (LANDING)
   if (!isAuthenticated && !showHrLogin) {
     return (
       <div className="min-h-screen bg-slate-950 relative overflow-hidden flex flex-col items-center justify-center px-6">
-        {/* Background blobs */}
         <div className="absolute top-1/4 -left-20 w-96 h-96 bg-blue-600/10 rounded-full blur-[120px]" />
         <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-indigo-600/10 rounded-full blur-[120px]" />
         
@@ -237,17 +233,17 @@ export default function App() {
           </p>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-lg mx-auto">
-            {/* HR-Панель - теперь первая */}
+            {/* HR-Панель ПЕРВАЯ */}
             <button 
               onClick={() => setShowHrLogin(true)}
-              className="p-6 bg-slate-900 border border-slate-800 rounded-3xl text-left group hover:border-indigo-500/50 transition-all shadow-xl"
+              className="p-6 bg-slate-900 border border-slate-800 rounded-3xl text-left group hover:border-indigo-500/50 transition-all shadow-2xl"
             >
               <div className="p-3 bg-indigo-500/10 rounded-2xl w-fit mb-4 group-hover:bg-indigo-500/20 transition-all text-indigo-400"><Lock size={24}/></div>
               <h3 className="text-white font-bold mb-2 flex items-center justify-between">HR-Панель <ChevronRight size={18}/></h3>
               <p className="text-slate-500 text-sm">Управление вакансиями и просмотр детальной аналитики по кандидатам.</p>
             </button>
 
-            {/* Блок для кандидатов - теперь второй */}
+            {/* Кандидаты ВТОРОЙ */}
             <div className="p-6 bg-slate-900/50 border border-slate-800 rounded-3xl text-left group hover:border-blue-500/30 transition-all cursor-default">
               <div className="p-3 bg-blue-500/10 rounded-2xl w-fit mb-4 group-hover:bg-blue-500/20 transition-all text-blue-400"><UserPlus size={24}/></div>
               <h3 className="text-white font-bold mb-2">Кандидатам</h3>
@@ -265,7 +261,6 @@ export default function App() {
     );
   }
 
-  // ЭКРАН ВХОДА HR
   if (showHrLogin && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
@@ -288,7 +283,6 @@ export default function App() {
 
   if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} company={currentCompany} onExit={() => resetApp(true)} onTestPreview={injectCustomSections} />;
 
-  // АНКЕТА КАНДИДАТА
   if (isAuthenticated && !candidateInfo) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -325,7 +319,6 @@ export default function App() {
     );
   }
 
-  // МЕНЮ ТЕСТОВ
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
       <ControlBar />
