@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { generateCustomQuestions } from '../services/geminiService';
 import { CustomTestConfig, JobListing } from '../types';
-import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye } from 'lucide-react';
+import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings } from 'lucide-react';
 
 interface HrBuilderProps {
   scriptUrl: string;
@@ -79,32 +79,127 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     setTimeout(() => setLastCopiedId(null), 2000);
   };
 
+  // Вспомогательные функции для интерпретации результатов
+  const getIqLabel = (score: number) => {
+    if (score >= 9) return { text: 'Высокий', color: 'text-blue-400' };
+    if (score >= 5) return { text: 'Средний', color: 'text-blue-300' };
+    return { text: 'Низкий', color: 'text-slate-500' };
+  };
+
+  const getReliabilityLabel = (score: number) => {
+    const val = parseInt(score.toString());
+    if (val >= 70) return { text: 'Высокая', color: 'text-green-400', bg: 'bg-green-500/10' };
+    if (val >= 35) return { text: 'Норма', color: 'text-blue-400', bg: 'bg-blue-500/10' };
+    return { text: 'Группа риска', color: 'text-red-400', bg: 'bg-red-500/10' };
+  };
+
+  const getSjtLabel = (score: number) => {
+    if (score >= 6) return 'Эффективно';
+    if (score >= 4) return 'Приемлемо';
+    return 'Неудовлетворительно';
+  };
+
+  const getFinalStatus = (report: any) => {
+    if (report.iq >= 7 && report.reliability >= 35) return { text: 'РЕКОМЕНДОВАН', color: 'text-green-400' };
+    return { text: 'ТРЕБУЕТ ПРОВЕРКИ', color: 'text-amber-400' };
+  };
+
   return (
     <div className="max-w-7xl mx-auto bg-slate-950 min-h-screen p-6 text-slate-100">
       {/* ОТЧЕТ (МОДАЛКА) */}
       {activeReport && (
-        <div className="fixed inset-0 z-[10000] bg-slate-950/90 backdrop-blur-xl p-4 sm:p-20 overflow-y-auto">
-           <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-3xl">
-              <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-6">
+        <div className="fixed inset-0 z-[10000] bg-slate-950/95 backdrop-blur-xl p-4 sm:p-10 lg:p-20 overflow-y-auto custom-scrollbar">
+           <div className="max-w-5xl mx-auto bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 lg:p-12 shadow-3xl animate-in zoom-in-95 duration-300">
+              <div className="flex justify-between items-start mb-12 border-b border-slate-800 pb-10">
                  <div>
-                   <h2 className="text-3xl font-black text-white">{activeReport.name}</h2>
-                   <p className="text-slate-500 font-bold uppercase">{activeReport.role}</p>
+                   <div className="flex items-center gap-3 mb-2">
+                     <h2 className="text-4xl font-black text-white">{activeReport.name}</h2>
+                     <div className={`px-4 py-1 rounded-full bg-slate-800 text-[10px] font-black tracking-widest uppercase ${getFinalStatus(activeReport).color}`}>
+                        {getFinalStatus(activeReport).text}
+                     </div>
+                   </div>
+                   <p className="text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
+                     <TrendingUp size={14} className="text-blue-500"/> {activeReport.role}
+                   </p>
                  </div>
-                 <button onClick={() => setActiveReport(null)} className="bg-slate-800 px-6 py-2 rounded-xl text-white font-bold">ЗАКРЫТЬ</button>
+                 <button onClick={() => setActiveReport(null)} className="bg-slate-800 hover:bg-slate-700 px-8 py-3 rounded-2xl text-white font-black transition-all active:scale-95 shadow-xl">ЗАКРЫТЬ</button>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800"><div className="text-[10px] text-slate-500 font-bold uppercase mb-1">IQ</div><div className="text-2xl font-black text-blue-400">{activeReport.iq}</div></div>
-                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800"><div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Надежность</div><div className="text-2xl font-black text-green-400">{activeReport.reliability}%</div></div>
-                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800"><div className="text-[10px] text-slate-500 font-bold uppercase mb-1">SJT</div><div className="text-2xl font-black text-purple-400">{activeReport.sjtScore}</div></div>
-                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800"><div className="text-[10px] text-slate-500 font-bold uppercase mb-1">Результат</div><div className="text-2xl font-black text-amber-400">PASSED</div></div>
+
+              {/* Метрики с интерпретацией */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+                 <div className="bg-slate-950/50 p-6 rounded-3xl border border-slate-800 flex flex-col justify-between">
+                    <div>
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Когнитивный тест</div>
+                      <div className="text-3xl font-black text-white">{activeReport.iq} <span className="text-slate-700 text-lg">/ 12</span></div>
+                    </div>
+                    <div className={`text-xs font-bold mt-4 uppercase ${getIqLabel(activeReport.iq).color}`}>
+                      Уровень: {getIqLabel(activeReport.iq).text}
+                    </div>
+                 </div>
+
+                 <div className={`p-6 rounded-3xl border border-slate-800 flex flex-col justify-between ${getReliabilityLabel(activeReport.reliability).bg}`}>
+                    <div>
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Надежность (HEXACO)</div>
+                      <div className={`text-3xl font-black ${getReliabilityLabel(activeReport.reliability).color}`}>{activeReport.reliability}%</div>
+                    </div>
+                    <div className={`text-xs font-bold mt-4 uppercase ${getReliabilityLabel(activeReport.reliability).color}`}>
+                      Статус: {getReliabilityLabel(activeReport.reliability).text}
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-950/50 p-6 rounded-3xl border border-slate-800 flex flex-col justify-between">
+                    <div>
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Кейс-тест (SJT)</div>
+                      <div className="text-3xl font-black text-purple-400">{activeReport.sjtScore} <span className="text-slate-700 text-lg">/ 8</span></div>
+                    </div>
+                    <div className="text-xs font-bold text-purple-500 mt-4 uppercase">
+                      Качество: {getSjtLabel(activeReport.sjtScore)}
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-950/50 p-6 rounded-3xl border border-slate-800 flex flex-col justify-between">
+                    <div>
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-4">Топ Драйверы</div>
+                      <div className="text-xs font-bold text-white leading-relaxed line-clamp-2">{activeReport.drivers || "Не определено"}</div>
+                    </div>
+                    <div className="text-xs font-bold text-blue-500 mt-4 uppercase flex items-center gap-1">
+                      <TrendingUp size={12}/> Вектор мотивации
+                    </div>
+                 </div>
               </div>
-              <div className="mb-8">
-                 <h3 className="text-white font-bold mb-3 flex items-center gap-2 text-sm uppercase tracking-widest"><Eye size={16} className="text-blue-400"/> Ответ на кейс:</h3>
-                 <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">{activeReport.workAnswer || "Кандидат не заполнил ответ"}</div>
+
+              <div className="space-y-10">
+                 <section>
+                    <h3 className="text-white font-black mb-4 flex items-center gap-3 text-sm uppercase tracking-[0.2em] border-l-4 border-blue-500 pl-4">
+                      Ответ на практический кейс
+                    </h3>
+                    <div className="bg-slate-950 p-8 rounded-[2rem] border border-slate-800 text-slate-300 text-base italic leading-relaxed shadow-inner">
+                      {activeReport.workAnswer ? `«${activeReport.workAnswer}»` : "Кандидат не заполнил ответ на практическое задание."}
+                    </div>
+                 </section>
+
+                 <section>
+                    <h3 className="text-white font-black mb-4 flex items-center gap-3 text-sm uppercase tracking-[0.2em] border-l-4 border-indigo-500 pl-4">
+                      Комплексный анализ системы
+                    </h3>
+                    <div className="bg-slate-950 p-10 rounded-[2rem] border border-slate-800 shadow-inner relative overflow-hidden">
+                       <div className="absolute top-0 right-0 p-10 opacity-[0.02] pointer-events-none">
+                          <BarChart size={200} />
+                       </div>
+                       <div className="prose prose-invert max-w-none prose-h3:text-blue-400 prose-h3:text-xl prose-h3:font-black prose-h3:mt-10 prose-h3:mb-4 prose-h3:uppercase prose-h3:tracking-widest prose-b:text-white prose-p:text-slate-400 prose-p:leading-relaxed prose-p:mb-6" 
+                            style={{ 
+                              color: '#94a3b8', 
+                              fontSize: '1.05rem', 
+                              lineHeight: '1.7' 
+                            }} 
+                            dangerouslySetInnerHTML={{ __html: activeReport.aiReport }} />
+                    </div>
+                 </section>
               </div>
-              <div>
-                 <h3 className="text-white font-bold mb-3 flex items-center gap-2 text-sm uppercase tracking-widest"><FileText size={16} className="text-blue-400"/> Анализ ИИ:</h3>
-                 <div className="bg-slate-950 p-8 rounded-2xl border border-slate-800 prose prose-invert max-w-none text-slate-200" dangerouslySetInnerHTML={{ __html: activeReport.aiReport }} />
+
+              <div className="mt-12 pt-10 border-t border-slate-800 text-center">
+                 <p className="text-slate-600 text-[10px] font-bold uppercase tracking-widest mb-4">Дата прохождения: {new Date(activeReport.date).toLocaleString()}</p>
+                 <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white px-8 py-3 rounded-xl transition-all text-xs font-black uppercase tracking-widest">Распечатать PDF</button>
               </div>
            </div>
         </div>
@@ -143,7 +238,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* MANAGE */}
+      {/* MANAGE (CANDIDATES LIST) */}
       {view === 'manage' && (
         <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
            <button onClick={() => setView('dashboard')} className="text-slate-400 hover:text-white flex items-center gap-2 text-sm font-bold uppercase"><ArrowLeft size={16}/> Назад к списку</button>
@@ -154,7 +249,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                     <table className="w-full text-left">
                       <thead>
                         <tr className="border-b border-slate-800 text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                          <th className="pb-4 px-4">ФИО</th>
+                          <th className="pb-4 px-4">ФИО / Роль</th>
                           <th className="pb-4 px-4 text-center">IQ</th>
                           <th className="pb-4 px-4 text-center">Надежность</th>
                           <th className="pb-4 px-4 text-right">Детали</th>
@@ -163,11 +258,20 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                       <tbody>
                         {jobCandidates.map((c, idx) => (
                           <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                            <td className="py-4 px-4"><div className="text-white font-bold">{c.name}</div><div className="text-slate-500 text-[10px]">{new Date(c.date).toLocaleDateString()}</div></td>
-                            <td className="py-4 px-4 text-center font-bold text-blue-400">{c.iq}</td>
-                            <td className="py-4 px-4 text-center text-sm">{c.reliability}%</td>
+                            <td className="py-4 px-4">
+                               <div className="text-white font-bold">{c.name}</div>
+                               <div className="text-slate-500 text-[10px]">{c.role} • {new Date(c.date).toLocaleDateString()}</div>
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                               <div className={`font-black ${getIqLabel(c.iq).color}`}>{c.iq}</div>
+                               <div className="text-[8px] text-slate-600 uppercase font-black">{getIqLabel(c.iq).text}</div>
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                               <div className={`text-sm font-black ${getReliabilityLabel(c.reliability).color}`}>{c.reliability}%</div>
+                               <div className="text-[8px] text-slate-600 uppercase font-black">{getReliabilityLabel(c.reliability).text}</div>
+                            </td>
                             <td className="py-4 px-4 text-right">
-                               <button onClick={() => setActiveReport(c)} className="p-3 bg-slate-800 hover:bg-blue-600 text-white rounded-xl transition-all"><FileText size={20}/></button>
+                               <button onClick={() => setActiveReport(c)} className="p-3 bg-slate-800 hover:bg-blue-600 text-white rounded-xl transition-all shadow-lg active:scale-90"><FileText size={20}/></button>
                             </td>
                           </tr>
                         ))}
@@ -179,39 +283,41 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* CREATE VIEW (без изменений в логике, только дизайн) */}
+      {/* CREATE VIEW */}
       {view === 'create' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-left-4 duration-500">
-           {/* Форма создания... */}
            <div className="lg:col-span-4 space-y-6">
             <button onClick={() => setView('dashboard')} className="text-slate-400 hover:text-white flex items-center gap-2 text-sm font-bold uppercase mb-2"><ArrowLeft size={16}/> Отмена</button>
             <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 shadow-2xl">
               <h2 className="text-xl font-bold mb-6 text-white">Новая Вакансия</h2>
               <div className="space-y-6">
-                <div><label className="text-xs font-black text-slate-500 uppercase block mb-2">Должность</label><input value={role} onChange={e => setRole(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 focus:border-blue-500 outline-none text-white" /></div>
-                <div><label className="text-xs font-black text-slate-500 uppercase block mb-2">Проблемы в отделе / Задачи</label><textarea value={challenges} onChange={e => setChallenges(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 h-40 focus:border-blue-500 outline-none text-sm text-slate-300" /></div>
-                <button onClick={handleGenerate} disabled={isGenerating || !role} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl flex items-center justify-center gap-3 transition-all disabled:opacity-50">{isGenerating ? <Loader2 className="animate-spin" /> : <Wand2 size={24} />} СФОРМИРОВАТЬ ТЕСТ</button>
+                <div><label className="text-xs font-black text-slate-500 uppercase block mb-2">Должность</label><input value={role} onChange={e => setRole(e.target.value)} placeholder="Напр: Официант" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 focus:border-blue-500 outline-none text-white transition-all" /></div>
+                <div><label className="text-xs font-black text-slate-500 uppercase block mb-2">Проблемы в отделе / Задачи</label><textarea value={challenges} onChange={e => setChallenges(e.target.value)} placeholder="Опишите боли бизнеса..." className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 h-40 focus:border-blue-500 outline-none text-sm text-slate-300 resize-none transition-all" /></div>
+                <button onClick={handleGenerate} disabled={isGenerating || !role} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl flex items-center justify-center gap-3 transition-all disabled:opacity-50 active:scale-95">{isGenerating ? <Loader2 className="animate-spin" /> : <Wand2 size={24} />} СФОРМИРОВАТЬ ТЕСТ</button>
               </div>
             </div>
           </div>
           <div className="lg:col-span-8">
-             <div className="bg-slate-900 rounded-3xl p-8 border border-slate-800 h-full">
-              <h2 className="text-xl font-bold mb-8 text-white">Структура теста</h2>
-              {!generatedConfig ? <div className="py-20 text-center text-slate-700 font-bold uppercase tracking-[0.2em]">Ожидание ввода данных...</div> : (
-                  <div className="space-y-10">
+             <div className="bg-slate-900 rounded-[2.5rem] p-8 border border-slate-800 h-full shadow-2xl overflow-hidden relative">
+              <h2 className="text-xl font-bold mb-8 text-white flex items-center gap-3"><Settings size={20} className="text-blue-500"/> Структура теста</h2>
+              {!generatedConfig ? <div className="py-20 text-center text-slate-700 font-bold uppercase tracking-[0.2em] animate-pulse">Ожидание ввода данных...</div> : (
+                  <div className="space-y-10 animate-in fade-in duration-500">
                     <div className="space-y-4">
+                      <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Ситуационные кейсы (SJT):</div>
                       {generatedConfig.sjtQuestions.map((q, i) => (
-                        <div key={i} className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-sm text-slate-300 italic">{q.text}</div>
+                        <div key={i} className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 text-sm text-slate-300 italic flex gap-4">
+                          <span className="text-blue-500 font-black">0{i+1}</span> {q.text}
+                        </div>
                       ))}
                     </div>
                     <div className="mt-12 pt-8 border-t border-slate-800">
                       {!savedLink ? (
-                        <button onClick={handleSave} disabled={isSaving} className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all">{isSaving ? <Loader2 className="animate-spin" /> : <Save size={24} />} ОПУБЛИКОВАТЬ</button>
+                        <button onClick={handleSave} disabled={isSaving} className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-green-900/20 active:scale-95">{isSaving ? <Loader2 className="animate-spin" /> : <Save size={24} />} ОПУБЛИКОВАТЬ</button>
                       ) : (
                         <div className="bg-blue-600/10 border border-blue-500/30 p-8 rounded-3xl text-center">
                           <h3 className="text-blue-400 font-bold mb-4 flex items-center justify-center gap-2"><CheckCircle size={20}/> ВАКАНСИЯ ОПУБЛИКОВАНА!</h3>
-                          <div className="flex gap-3 mb-8"><input readOnly value={savedLink} className="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-mono text-blue-300" /><button onClick={() => copyToClipboard(savedLink, 'new')} className="bg-slate-800 p-3 rounded-xl"><Copy size={20}/></button></div>
-                          <button onClick={() => setView('dashboard')} className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold">К СПИСКУ ВАКАНСИЙ</button>
+                          <div className="flex gap-3 mb-8"><input readOnly value={savedLink} className="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-mono text-blue-300 outline-none" /><button onClick={() => copyToClipboard(savedLink, 'new')} className="bg-slate-800 p-3 rounded-xl hover:bg-slate-700 transition-colors"><Copy size={20}/></button></div>
+                          <button onClick={() => setView('dashboard')} className="w-full bg-slate-800 text-white py-4 rounded-xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all">К СПИСКУ ВАКАНСИЙ</button>
                         </div>
                       )}
                     </div>
