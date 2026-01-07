@@ -1,15 +1,20 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
-// Initialize the Google GenAI client using the required environment variable
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+import { GoogleGenAI, Type } from "@google/genai";
+import { TestResult, CandidateInfo, CustomTestConfig } from "./types";
+
+// Безопасное получение API ключа
+const getApiKey = () => {
+  try {
+    return process.env.API_KEY || '';
+  } catch (e) {
+    return '';
+  }
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
-/**
- * Generates a candidate profile summary report based on test results.
- * Uses gemini-3-flash-preview for general text summarization.
- */
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
   const resultsText = results.map(r => {
     let details = '';
@@ -38,10 +43,6 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
   return response.text || "Ошибка генерации отчета";
 };
 
-/**
- * Generates custom test questions (SJT and Work Sample) for a job role.
- * Uses gemini-3-pro-preview for complex reasoning and structure generation.
- */
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
