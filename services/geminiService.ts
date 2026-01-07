@@ -4,11 +4,17 @@ import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
 /**
  * ВАЖНО: При деплое на GitHub замените значение ниже на вашу реальную ссылку Web App из Google Script.
- * На хостинге (Vercel/Netlify) лучше использовать переменные окружения.
  */
-export const SCRIPT_URL = 'https://script.google.com/macros/s/ВАШ_УНИКАЛЬНЫЙ_ID/exec';
+export const SCRIPT_URL = 'https://script.google.com/macros/s/1lt16LNgMK_vU_CdXBR7AV3FZ0g8ZT6GFq84M5K0oGoQ/exec';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Функция для безопасного получения клиента ИИ
+const getAIClient = () => {
+  const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : null;
+  if (!apiKey) {
+    throw new Error("API_KEY не найден в переменных окружения (process.env.API_KEY)");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
   const resultsText = results.map(r => {
@@ -39,13 +45,15 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
   `;
 
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
     return response.text || "Не удалось сгенерировать отчет.";
   } catch (e: any) {
-    return `Ошибка анализа: ${e.message}`;
+    console.error("Gemini Error:", e);
+    return `Ошибка анализа: ${e.message}. Проверьте настройки API ключа.`;
   }
 };
 
@@ -62,6 +70,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
   `;
   
   try {
+    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: prompt,
@@ -111,8 +120,8 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
 
     if (!response.text) return null;
     return JSON.parse(response.text);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Methodology Generation Error:", error);
-    throw error;
+    throw new Error(`Ошибка генерации: ${error.message}`);
   }
 };
