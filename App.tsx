@@ -56,6 +56,8 @@ export default function App() {
         return;
       }
 
+      const jobId = params.get('jobId');
+
       const savedResults = localStorage.getItem('sh_results');
       const savedCompleted = localStorage.getItem('sh_completed');
       const savedCandidate = localStorage.getItem('sh_candidate');
@@ -65,6 +67,7 @@ export default function App() {
       const savedHrFlag = localStorage.getItem('sh_is_hr');
       const savedShowHr = localStorage.getItem('sh_show_hr_builder');
 
+      // Базовая загрузка из LS
       if (savedResults) setResults(JSON.parse(savedResults));
       if (savedCompleted) setCompletedSections(JSON.parse(savedCompleted));
       if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
@@ -74,9 +77,12 @@ export default function App() {
       if (savedHrFlag === 'true') setIsHrMode(true);
       if (savedShowHr === 'true') setShowHrBuilder(true);
 
-      const jobId = params.get('jobId');
+      // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Если в URL есть jobId, мы в режиме КАНДИДАТА.
+      // Принудительно отключаем режим конструктора, даже если он был сохранен в LS.
       if (jobId) {
         setCustomJobId(jobId);
+        setShowHrBuilder(false);
+        setIsHrMode(false);
         fetchCustomConfig(jobId);
       }
     } catch (e) {
@@ -86,7 +92,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!currentCompany && !isAuthenticated && !showHrBuilder) return;
+    // Сохраняем состояние только если мы не в режиме "чистого" входа по ссылке (или уже начали работу)
     localStorage.setItem('sh_results', JSON.stringify(results));
     localStorage.setItem('sh_completed', JSON.stringify(completedSections));
     if (candidateInfo) localStorage.setItem('sh_candidate', JSON.stringify(candidateInfo));
@@ -105,7 +111,7 @@ export default function App() {
     }
     setIsLoadingConfig(true);
     try {
-      const response = await fetch(`${SCRIPT_URL}?jobId=${jobId}`);
+      const response = await fetch(`${SCRIPT_URL}?action=GET_JOB_CONFIG&jobId=${jobId}`);
       const data = await response.json();
       if (data && data.sjtQuestions) injectCustomSections(data);
     } catch (e) {
@@ -117,14 +123,19 @@ export default function App() {
 
   const injectCustomSections = (data: CustomTestConfig, isPreview = false) => {
       const customSections = [...TEST_DATA];
-      customSections.push({
-        id: 'sjt',
-        title: 'Ситуационные Кейсы (SJT)',
-        description: `Решение профессиональных дилемм для роли ${data.jobTitle}.`,
-        displayMode: 'step',
-        questions: data.sjtQuestions
-      });
-      if (data.workSampleQuestion) {
+      
+      // Избегаем дублирования при повторных вызовах
+      if (!customSections.find(s => s.id === 'sjt')) {
+        customSections.push({
+          id: 'sjt',
+          title: 'Ситуационные Кейсы (SJT)',
+          description: `Решение профессиональных дилемм для роли ${data.jobTitle}.`,
+          displayMode: 'step',
+          questions: data.sjtQuestions
+        });
+      }
+      
+      if (data.workSampleQuestion && !customSections.find(s => s.id === 'work_sample')) {
         customSections.push({
           id: 'work_sample',
           title: 'Практическое Задание',
@@ -133,7 +144,9 @@ export default function App() {
           questions: [data.workSampleQuestion]
         });
       }
+      
       setTestSections(customSections);
+      
       if (isPreview) {
         setIsHrMode(true);
         setCandidateInfo({ name: 'HR Preview', age: '30', department: 'HR Dept', role: data.jobTitle });
@@ -273,6 +286,44 @@ export default function App() {
 
   if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} company={currentCompany} onExit={() => setShowHrBuilder(false)} onTestPreview={injectCustomSections} />;
 
+  // --- ЛОГИКА ОТОБРАЖЕНИЯ ЭКРАНОВ ---
+
+  // 1. Экран логина для КАНДИДАТА (если есть jobId в ссылке)
+  if (customJobId && !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+        <ControlBar />
+        <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
+          <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><LogIn className="text-blue-400" size={32} /></div>
+          <h1 className="text-2xl font-bold text-white mb-2">Портал Кандидата</h1>
+          <p className="text-slate-400 text-sm mb-8">Для компании: <span className="text-blue-400 font-bold">{currentCompany || "..."}</span></p>
+          <form onSubmit={handleLoginSubmit}><div className="relative mb-6"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} /><input name="code" type="password" required placeholder="КОД КОМПАНИИ" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-12 pr-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-[0.3em] font-black" /></div><button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Войти в систему</button></form>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Экран анкеты (если залогинились, но не ввели ФИО)
+  if (isAuthenticated && !candidateInfo) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <ControlBar />
+        <div className="max-w-md w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
+          <div className="text-center mb-8"><div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><UserPlus className="text-blue-400" size={32} /></div><h1 className="text-2xl font-bold text-white mb-2">Анкета Кандидата</h1><p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{currentCompany}</p></div>
+          <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); setCandidateInfo({ name: fd.get('name') as string, age: fd.get('age') as string, department: fd.get('department') as string, role: fd.get('role') as string }); }} className="space-y-4">
+            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
+            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Возраст</label><input name="age" type="number" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
+            <div className="grid grid-cols-2 gap-4"><div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Отдел</label><input name="department" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div><div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Должность</label><input name="role" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div></div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4 transition-all">НАЧАТЬ ТЕСТ</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Главный вход SmartHire (если нет jobId и нет авторизации)
   if (!customJobId && !isAuthenticated && !candidateInfo) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
@@ -298,49 +349,19 @@ export default function App() {
     );
   }
 
-  if (customJobId && !isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <ControlBar />
-        <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
-          <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><LogIn className="text-blue-400" size={32} /></div>
-          <h1 className="text-2xl font-bold text-white mb-2">Портал Кандидата</h1>
-          <p className="text-slate-400 text-sm mb-8">Для компании: <span className="text-blue-400 font-bold">{currentCompany || "..."}</span></p>
-          <form onSubmit={handleLoginSubmit}><div className="relative mb-6"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} /><input name="code" type="password" required placeholder="КОД КОМПАНИИ" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-12 pr-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-[0.3em] font-black" /></div><button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Войти в систему</button></form>
-        </div>
-      </div>
-    );
-  }
-
-  if (isAuthenticated && !candidateInfo) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <ControlBar />
-        <div className="max-w-md w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
-          <div className="text-center mb-8"><div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><UserPlus className="text-blue-400" size={32} /></div><h1 className="text-2xl font-bold text-white mb-2">Анкета Кандидата</h1><p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{currentCompany}</p></div>
-          <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); setCandidateInfo({ name: fd.get('name') as string, age: fd.get('age') as string, department: fd.get('department') as string, role: fd.get('role') as string }); }} className="space-y-4">
-            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Возраст</label><input name="age" type="number" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-            <div className="grid grid-cols-2 gap-4"><div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Отдел</label><input name="department" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div><div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Должность</label><input name="role" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div></div>
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4 transition-all">НАЧАТЬ ТЕСТ</button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
+  // 4. Прохождение теста
   if (activeSectionId) {
     const section = testSections.find(t => t.id === activeSectionId);
     if (!section) return null;
     return <div className="min-h-screen bg-slate-950 py-6 px-4 sm:px-6"><TestRunner section={section} onComplete={handleSectionComplete} onExit={() => setActiveSectionId(null)} /></div>;
   }
 
+  // 5. Результаты
   if (completedSections.length === testSections.length) {
     return <div className="min-h-screen bg-slate-950 py-8 px-4 sm:px-6"><ResultsView results={results} candidateInfo={candidateInfo} onReset={() => resetApp(true)} scriptUrl={SCRIPT_URL} /></div>;
   }
 
+  // 6. Главное меню тестов для кандидата
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
       <ControlBar />
