@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { TestResult, CandidateInfo, CustomTestConfig } from "./types";
+import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
 
 // Безопасное получение API ключа
 const getApiKey = () => {
@@ -15,6 +15,10 @@ const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
+/**
+ * Generates a candidate profile summary report based on test results.
+ * Uses gemini-3-flash-preview for general text summarization.
+ */
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
   const resultsText = results.map(r => {
     let details = '';
@@ -24,25 +28,38 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
   }).join('\n');
 
+  // Fix: Corrected multiline template literal and escaped triple backticks to prevent syntax issues
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Ты HR-аналитик. Напиши краткий отчет (Сильные стороны, Риски, Вывод). 
+    contents: `Ты ведущий HR-аналитик. Проанализируй данные кандидата и составь профессиональное заключение.
     Кандидат: ${candidateInfo?.name}, Роль: ${candidateInfo?.role}. 
-    РЕЗУЛЬТАТЫ ТЕСТОВ:
+    
+    ДАННЫЕ ТЕСТОВ:
     ${resultsText}
     
-    ТРЕБОВАНИЯ:
-    1. Обязательно дай развернутую оценку ОТВЕТУ НА КЕЙС (Практическое задание).
-    2. Пиши строго без markdown (никаких тройных кавычек).
-    3. Используй ТОЛЬКО теги <h3> для заголовков и <b> для выделения.`,
+    СТРУКТУРА ОТЧЕТА (используй теги <h3> для разделов):
+    1. <h3>Сильные стороны</h3> - Опиши таланты и потенциал.
+    2. <h3>Риски и ограничения</h3> - Честно укажи слабые места (напр. низкая надежность или ошибки в кейсе).
+    3. <h3>Рекомендация по управлению</h3> - Как мотивировать и контролировать этого человека.
+    4. <h3>Итоговый вывод</h3> - Нанимать или нет.
+    
+    ТРЕБОВАНИЯ К ОФОРМЛЕНИЮ:
+    - Пиши развернуто, разделяй мысли на абзацы (тег <p> или просто пустая строка).
+    - Используй <b> для важных качеств.
+    - ЗАПРЕЩЕНО использовать markdown (\`\`\`), только HTML теги.`,
     config: {
-      systemInstruction: "Ты профессиональный HR-аналитик. Пиши только чистый текст с HTML тегами <h3> и <b>. ЗАПРЕЩЕНО использовать markdown (```).",
+      systemInstruction: "Ты профессиональный HR-аналитик. Пиши только чистый текст с HTML тегами <h3> и <b>. Твой стиль — экспертный, лаконичный, но глубокий. ЗАПРЕЩЕНО использовать markdown (\`\`\`).",
     }
   });
 
+  // Fix: Access .text as a property, not a method
   return response.text || "Ошибка генерации отчета";
 };
 
+/**
+ * Generates custom test questions (SJT and Work Sample) for a job role.
+ * Uses gemini-3-pro-preview for complex reasoning and structure generation.
+ */
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
@@ -93,6 +110,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
   });
 
   try {
+    // Fix: Access .text as a property, not a method
     const data = JSON.parse(response.text || "{}");
     return {
       jobId: "",
