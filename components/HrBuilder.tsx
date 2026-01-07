@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { generateCustomQuestions } from '../services/geminiService';
 import { CustomTestConfig } from '../types';
@@ -30,10 +29,16 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, onExit, onTestPreview 
       }
     } catch (e: any) {
       console.error(e);
-      // Показываем пользователю точное сообщение об ошибке
       setErrorMsg(e.message || "Неизвестная ошибка связи с сервером");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleTestPreviewInternal = () => {
+    if (generatedConfig) {
+      localStorage.setItem('sh_is_hr', 'true'); // Устанавливаем флаг HR для превью
+      onTestPreview(generatedConfig);
     }
   };
 
@@ -92,7 +97,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, onExit, onTestPreview 
       }
     } catch (e) {
       console.error("Save error", e);
-      alert("Ошибка сети при сохранении. Проверьте консоль.");
+      alert("Ошибка сети при сохранении.");
     } finally {
       setIsSaving(false);
     }
@@ -116,7 +121,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, onExit, onTestPreview 
         <div className="flex gap-3 w-full sm:w-auto">
            {generatedConfig && (
              <button 
-                onClick={() => onTestPreview(generatedConfig)}
+                onClick={handleTestPreviewInternal}
                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg font-bold transition-all shadow-lg shadow-indigo-900/20"
              >
                <Play size={18} fill="currentColor" /> ТЕСТ-ДРАЙВ
