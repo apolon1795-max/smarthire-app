@@ -186,11 +186,11 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                        <div className="absolute top-0 right-0 p-10 opacity-[0.02] pointer-events-none">
                           <BarChart size={200} />
                        </div>
-                       <div className="prose prose-invert max-w-none prose-h3:text-blue-400 prose-h3:text-xl prose-h3:font-black prose-h3:mt-10 prose-h3:mb-4 prose-h3:uppercase prose-h3:tracking-widest prose-b:text-white prose-p:text-slate-400 prose-p:leading-relaxed prose-p:mb-6" 
+                       <div className="prose prose-invert max-w-none prose-h3:text-blue-400 prose-h3:text-xl prose-h3:font-black prose-h3:mt-10 prose-h3:mb-4 prose-h3:uppercase prose-h3:tracking-widest prose-b:text-white prose-p:text-slate-400 prose-p:leading-relaxed prose-p:mb-8" 
                             style={{ 
                               color: '#94a3b8', 
                               fontSize: '1.05rem', 
-                              lineHeight: '1.7' 
+                              lineHeight: '1.75' 
                             }} 
                             dangerouslySetInnerHTML={{ __html: activeReport.aiReport }} />
                     </div>
