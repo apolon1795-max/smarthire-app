@@ -1,8 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { TestResult, CandidateInfo, CustomTestConfig } from "../types";
+import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../types";
 
-// Безопасное получение API ключа
 const getApiKey = () => {
   try {
     return process.env.API_KEY || '';
@@ -15,11 +14,7 @@ const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
-/**
- * Generates a candidate profile summary report based on test results.
- * Uses gemini-3-flash-preview for general text summarization.
- */
-export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo): Promise<string> => {
+export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo, benchmark?: BenchmarkData): Promise<string> => {
   const resultsText = results.map(r => {
     let details = '';
     if (r.sectionId === 'conscientiousness') details = ` (HEXACO: ${r.hexacoProfile?.map(h => `${h.code}=${h.average}`).join(', ')})`;
@@ -28,38 +23,41 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
   }).join('\n');
 
+  const benchmarkText = benchmark ? `
+  ЦЕЛЕВОЙ ПРОФИЛЬ (БЕНЧМАРК):
+  - Интеллект (IQ): ${benchmark.iq} из 12
+  - Надежность: ${benchmark.reliability}%
+  - Кейс-тест (SJT): ${benchmark.sjt} из 8
+  ` : "Бенчмарк не задан.";
+
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Ты ведущий HR-аналитик. Проанализируй данные кандидата и составь профессиональное заключение.
+    contents: `Ты ведущий HR-аналитик. Проанализируй данные кандидата в сравнении с эталоном.
     Кандидат: ${candidateInfo?.name}, Роль: ${candidateInfo?.role}. 
     
-    ДАННЫЕ ТЕСТОВ:
+    ${benchmarkText}
+
+    ДАННЫЕ ТЕСТОВ КАНДИДАТА:
     ${resultsText}
     
     СТРУКТУРА ОТЧЕТА (используй теги <h3> для разделов):
-    1. <h3>Сильные стороны</h3> - Опиши таланты и потенциал.
-    2. <h3>Риски и ограничения</h3> - Честно укажи слабые места (напр. низкая надежность или ошибки в кейсе).
-    3. <h3>Рекомендация по управлению</h3> - Как мотивировать и контролировать этого человека.
-    4. <h3>Итоговый вывод</h3> - Нанимать или нет.
+    1. <h3>Соответствие должности (Match Analysis)</h3> - Насколько кандидат близок к эталону? В чем главные разрывы (gaps)?
+    2. <h3>Сильные стороны</h3> - В чем он превосходит ожидания.
+    3. <h3>Риски и ограничения</h3> - Где он не дотягивает до бенчмарка.
+    4. <h3>Рекомендация по найму</h3> - Конкретный вердикт.
     
     ТРЕБОВАНИЯ К ОФОРМЛЕНИЮ:
-    - ОБЯЗАТЕЛЬНО разделяй текст на логические блоки.
-    - КАЖДЫЙ абзац должен быть обернут в тег <p>.
-    - Между абзацами должно быть много свободного пространства.
-    - Используй <b> для выделения ключевых компетенций и выводов.
-    - ЗАПРЕЩЕНО использовать markdown (\`\`\`), только чистый HTML (h3, p, b).`,
+    - Разделяй текст на логические блоки тегом <p>.
+    - Используй <b> для акцентов.
+    - ЗАПРЕЩЕНО использовать markdown (\`\`\`), только чистый HTML.`,
     config: {
-      systemInstruction: "Ты профессиональный HR-аналитик. Твоя задача — формировать отчеты с отличной читаемостью. Используй теги <h3> для заголовков и <p> для каждого абзаца. Твой стиль — экспертный и структурированный. ЗАПРЕЩЕНО использовать markdown.",
+      systemInstruction: "Ты профессиональный HR-аналитик. Твоя задача — формировать отчеты с глубоким анализом соответствия бенчмарку. Используй HTML теги <h3>, <p>, <b>.",
     }
   });
 
   return response.text || "Ошибка генерации отчета";
 };
 
-/**
- * Generates custom test questions (SJT and Work Sample) for a job role.
- * Uses gemini-3-pro-preview for complex reasoning and structure generation.
- */
 export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
@@ -77,7 +75,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
               properties: {
                 id: { type: Type.STRING },
                 text: { type: Type.STRING },
-                type: { type: Type.STRING, description: "Must be 'scenario'" },
+                type: { type: Type.STRING },
                 options: {
                   type: Type.ARRAY,
                   items: {
@@ -85,7 +83,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
                     properties: {
                       id: { type: Type.STRING },
                       text: { type: Type.STRING },
-                      value: { type: Type.NUMBER, description: "Points from 0 to 2" }
+                      value: { type: Type.NUMBER }
                     },
                     required: ["id", "text", "value"]
                   }
@@ -99,7 +97,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
             properties: {
               id: { type: Type.STRING },
               text: { type: Type.STRING },
-              type: { type: Type.STRING, description: "Must be 'text'" }
+              type: { type: Type.STRING }
             },
             required: ["id", "text", "type"]
           }
@@ -119,7 +117,6 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
       workSampleQuestion: data.workSampleQuestion
     };
   } catch (e) {
-    console.error("Failed to parse custom questions from AI response", e);
     return null;
   }
 };
