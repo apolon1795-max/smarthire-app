@@ -9,10 +9,30 @@ export const SCRIPT_URL = 'https://script.google.com/macros/s/1lt16LNgMK_vU_CdXB
 
 // Функция для безопасного получения клиента ИИ
 const getAIClient = () => {
-  const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : null;
-  if (!apiKey) {
-    throw new Error("API_KEY не найден в переменных окружения (process.env.API_KEY)");
+  let apiKey = null;
+
+  try {
+    // Пытаемся получить ключ стандартным способом
+    apiKey = process.env.API_KEY;
+  } catch (e) {
+    // В браузере process может быть не определен. 
+    // Проверяем альтернативные источники (Vite и глобальные объекты)
+    // @ts-ignore
+    apiKey = window.process?.env?.API_KEY || window.API_KEY;
   }
+
+  // Если ключ не найден, проверяем специфичные для Vite переменные (как на скриншоте пользователя)
+  if (!apiKey) {
+    try {
+      // @ts-ignore
+      apiKey = import.meta.env?.VITE_API_KEY || import.meta.env?.API_KEY;
+    } catch (e) {}
+  }
+
+  if (!apiKey) {
+    throw new Error("API_KEY не найден. Проверьте настройки переменных окружения в панели хостинга (Timeweb).");
+  }
+
   return new GoogleGenAI({ apiKey });
 };
 
@@ -53,7 +73,7 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     return response.text || "Не удалось сгенерировать отчет.";
   } catch (e: any) {
     console.error("Gemini Error:", e);
-    return `Ошибка анализа: ${e.message}. Проверьте настройки API ключа.`;
+    return `Ошибка анализа: ${e.message}. Проверьте настройки API ключа в панели хостинга.`;
   }
 };
 
