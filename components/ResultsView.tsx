@@ -11,7 +11,7 @@ interface ResultsViewProps {
   scriptUrl: string;
   isHrView?: boolean;
   jobId?: string;
-  onRetake?: () => void; // Новое свойство для пересдачи
+  onRetake?: () => void;
 }
 
 const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onReset, scriptUrl, isHrView, jobId, onRetake }) => {
@@ -20,25 +20,12 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onRes
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
   const hasSaved = useRef(false);
 
-  // Глубокая очистка от markdown
-  const cleanReportHtml = (text: string) => {
-    return text
-      .replace(/```html/g, '')
-      .replace(/```/g, '')
-      .replace(/yandexgpt/g, '')
-      .replace(/&lt;h3&gt;/g, '<h3>')
-      .replace(/&lt;\/h3&gt;/g, '</h3>')
-      .replace(/&lt;b&gt;/g, '<b>')
-      .replace(/&lt;\/b&gt;/g, '</b>')
-      .trim();
-  };
-
   useEffect(() => {
     const process = async () => {
       setIsAnalyzing(true);
       try {
         const text = await generateCandidateProfile(results, candidateInfo || undefined);
-        setAnalysis(cleanReportHtml(text));
+        setAnalysis(text);
       } catch (e) { console.error(e); }
       finally { setIsAnalyzing(false); }
     };
@@ -54,21 +41,25 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onRes
 
   const handleAutoSave = async () => {
     setSaveStatus('saving');
+    const conscientiousnessSection = results.find(r => r.sectionId === 'conscientiousness');
+    const motivationSection = results.find(r => r.sectionId === 'motivation');
     const workRes = results.find(r => r.sectionId === 'work_sample');
+    
     const payload = {
       action: "SAVE_RESULT",
       jobId: jobId || "",
       candidateName: candidateInfo?.name || "Кандидат",
       candidateRole: candidateInfo?.role || "Соискатель",
       iqScore: results.find(r => r.sectionId === 'intelligence')?.rawScore || 0,
-      reliability: results.find(r => r.sectionId === 'conscientiousness')?.percentage.toFixed(0) || 0,
-      emotionality: 3,
-      topDrivers: results.find(r => r.sectionId === 'motivation')?.motivationProfile?.topDrivers || [],
+      reliability: conscientiousnessSection?.percentage.toFixed(0) || 0,
+      topDrivers: motivationSection?.motivationProfile?.topDrivers || [],
       statusText: "Завершено",
       aiAnalysis: analysis,
       sjtScore: results.find(r => r.sectionId === 'sjt')?.rawScore || 0,
       workSampleAnswer: workRes?.textAnswer || "Нет ответа",
-      company: localStorage.getItem('sh_company') || ""
+      company: localStorage.getItem('sh_company') || "",
+      hexacoJson: JSON.stringify(conscientiousnessSection?.hexacoProfile || {}),
+      motivationJson: JSON.stringify(motivationSection?.motivationProfile || {})
     };
 
     try {
@@ -78,80 +69,28 @@ const ResultsView: React.FC<ResultsViewProps> = ({ results, candidateInfo, onRes
         body: JSON.stringify(payload) 
       });
       const data = await response.json();
-      if (data.status === 'success') {
-        setSaveStatus('done');
-      } else {
-        setSaveStatus('error');
-      }
-    } catch (e) { 
-      console.error(e); 
-      setSaveStatus('error');
-    }
+      if (data.status === 'success') setSaveStatus('done');
+      else setSaveStatus('error');
+    } catch (e) { setSaveStatus('error'); }
   };
 
   if (isAnalyzing) return (
     <div className="flex flex-col items-center gap-4 text-center">
       <Loader2 className="animate-spin text-blue-500" size={64} />
-      <h2 className="text-xl font-bold text-white">Анализируем ваши ответы...</h2>
+      <h2 className="text-xl font-bold text-white uppercase tracking-widest animate-pulse">Составляем профиль кандидата...</h2>
     </div>
   );
 
-  // КАНДИДАТ ВИДИТ ТОЛЬКО ЭТО
-  if (!isHrView) {
-    return (
-      <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-10 rounded-[2rem] text-center shadow-2xl">
-        <div className="inline-flex p-5 rounded-3xl bg-green-500/10 border border-green-500/20 mb-8">
-           <ShieldCheck className="text-green-500" size={64} />
-        </div>
-        <h1 className="text-3xl font-black text-white mb-4">ТЕСТ ПРОЙДЕН!</h1>
-        <p className="text-slate-400 leading-relaxed mb-10">Спасибо за уделенное время. Ваши результаты переданы в HR-отдел компании. Мы свяжемся с вами после проверки.</p>
-        
-        <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700 mb-8 flex items-center justify-between">
-           <span className="text-xs font-bold text-slate-500 uppercase">Синхронизация:</span>
-           {saveStatus === 'done' ? (
-             <span className="text-xs font-bold text-green-400 flex items-center gap-1 uppercase"><CheckCircle size={14}/> Ок</span>
-           ) : saveStatus === 'error' ? (
-             <span className="text-xs font-bold text-red-400 flex items-center gap-1 uppercase">Ошибка сохранения</span>
-           ) : (
-             <span className="text-xs font-bold text-blue-400 animate-pulse uppercase">Загрузка...</span>
-           )}
-        </div>
-
-        <div className="space-y-3">
-          <button onClick={onReset} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/20">НА ГЛАВНУЮ</button>
-          {onRetake && (
-            <button onClick={onRetake} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-4 rounded-xl transition-all">
-              <RotateCcw size={18}/> ПРОЙТИ ЗАНОВО
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // HR ВИДИТ ОТЧЕТ
   return (
-    <div className="max-w-4xl w-full bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl">
-      <div className="flex justify-between items-center mb-8 border-b border-slate-800 pb-6">
-        <div>
-           <h1 className="text-2xl font-bold text-white uppercase tracking-tight">Отчёт: {candidateInfo?.name}</h1>
-           <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">{candidateInfo?.role}</p>
-        </div>
-        <div className="flex gap-2">
-          {onRetake && (
-             <button onClick={onRetake} title="Сбросить и перепройти" className="bg-slate-800 text-slate-400 p-3 rounded-xl hover:text-white transition-all border border-slate-700"><RotateCcw size={20}/></button>
-          )}
-          <button onClick={() => window.print()} title="Печать отчета" className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-500 transition-all shadow-lg"><Download size={20}/></button>
-        </div>
+    <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-10 rounded-[2rem] text-center shadow-2xl">
+      <div className="inline-flex p-5 rounded-3xl bg-green-500/10 border border-green-500/20 mb-8"><ShieldCheck className="text-green-500" size={64} /></div>
+      <h1 className="text-3xl font-black text-white mb-4">ТЕСТ ПРОЙДЕН!</h1>
+      <p className="text-slate-400 leading-relaxed mb-10">Спасибо за уделенное время. Ваши результаты переданы в HR-отдел компании. Мы свяжемся с вами после проверки.</p>
+      <div className="p-4 bg-slate-800/50 rounded-2xl border border-slate-700 mb-8 flex items-center justify-between">
+         <span className="text-xs font-bold text-slate-500 uppercase">Синхронизация данных:</span>
+         <span className={`text-xs font-black uppercase ${saveStatus === 'done' ? 'text-green-400' : 'text-blue-400'}`}>{saveStatus === 'done' ? 'УСПЕШНО' : 'ЗАГРУЗКА...'}</span>
       </div>
-      
-      <div className="bg-slate-950 p-8 rounded-2xl border border-slate-800 text-slate-200 text-sm leading-relaxed overflow-hidden">
-        <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: analysis }} />
-      </div>
-
-      <div className="mt-10 flex justify-center">
-         <button onClick={onReset} className="bg-slate-800 text-slate-400 font-bold px-8 py-3 rounded-xl hover:text-white transition-colors">ВЕРНУТЬСЯ К СПИСКУ</button>
-      </div>
+      <button onClick={onReset} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/20 uppercase tracking-widest text-sm">НА ГЛАВНУЮ</button>
     </div>
   );
 };
