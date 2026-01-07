@@ -4,7 +4,7 @@ import TestRunner from './components/TestRunner';
 import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
-import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2 } from 'lucide-react';
+import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw } from 'lucide-react';
 import { SCRIPT_URL } from './services/geminiService';
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -106,7 +106,6 @@ export default function App() {
     injectCustomSections(config, true);
   };
 
-  // --- SCORING (Corrected for 0-100% logic) ---
   const calculateHexacoScores = (answers: UserAnswers): HexacoScore[] => {
     const scores: Record<string, { sum: number; count: number }> = {
       'H': { sum: 0, count: 0 }, 'E': { sum: 0, count: 0 }, 'X': { sum: 0, count: 0 },
@@ -219,7 +218,7 @@ export default function App() {
           const randomIndex = Math.floor(Math.random() * q.options!.length);
           answers[q.id] = q.options![randomIndex].value;
         } else if (q.type === 'text') {
-          answers[q.id] = "Кандидат проявил высокий уровень компетенций. В стрессовой ситуации предложил эффективный алгоритм действий: локализация проблемы, уведомление стейкхолдеров, запуск резервных мощностей. Ответ структурирован и логичен.";
+          answers[q.id] = "Кандидат проявил высокий уровень компетенций. В стрессовой ситуации предложил эффективный алгоритм действий. Ответ структурирован и логичен.";
         }
       });
 
@@ -265,15 +264,18 @@ export default function App() {
   };
 
   const startTest = (id: string) => setActiveSectionId(id);
+  
   const resetApp = () => {
     localStorage.clear();
-    setActiveSectionId(null);
-    setCompletedSections([]);
-    setResults([]);
-    setCandidateInfo(null);
+    // Очищаем стейт
     setIsAuthenticated(false);
-    setTestSections(TEST_DATA);
-    window.location.reload();
+    setCandidateInfo(null);
+    setResults([]);
+    setCompletedSections([]);
+    setActiveSectionId(null);
+    setShowHrBuilder(false);
+    // Возвращаем чистый URL без параметров
+    window.location.href = window.location.pathname;
   };
 
   const handleRegistrationSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -308,7 +310,7 @@ export default function App() {
                 <ShieldCheck className="text-blue-500" size={64} />
               </div>
               <h1 className="text-5xl font-extrabold text-white tracking-tight">SmartHire Assessment</h1>
-              <p className="text-slate-400 text-lg">Платформа для профессиональной оценки персонала и генерации индивидуальных тестов с помощью AI.</p>
+              <p className="text-slate-400 text-lg">Платформа для профессиональной оценки персонала.</p>
            </div>
            <div className="bg-slate-900/50 p-1 rounded-2xl border border-slate-800">
              <button onClick={() => setShowHrBuilder(true)} className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-5 rounded-xl shadow-2xl shadow-blue-900/40 transition-all group">
@@ -323,7 +325,7 @@ export default function App() {
 
   if (customJobId && !isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
         <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
           <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30">
@@ -338,6 +340,10 @@ export default function App() {
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Войти в систему</button>
           </form>
+          
+          <button onClick={resetApp} className="mt-8 text-slate-500 hover:text-white text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 mx-auto transition-colors">
+            <LogOut size={14}/> Сбросить сессию / Выйти
+          </button>
         </div>
       </div>
     );
@@ -361,6 +367,10 @@ export default function App() {
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4 transition-all">НАЧАТЬ ТЕСТ</button>
           </form>
+          
+          <button onClick={resetApp} className="mt-8 text-slate-500 hover:text-white text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 mx-auto transition-colors">
+            <RefreshCcw size={14}/> Вернуться в главное меню
+          </button>
         </div>
       </div>
     );
@@ -378,7 +388,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
-      <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center">
+      <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center relative">
+        <div className="absolute top-4 right-4">
+           <button onClick={resetApp} className="flex items-center gap-2 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all">
+             <LogOut size={14}/> ВЫЙТИ
+           </button>
+        </div>
         <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>.</p>
         
