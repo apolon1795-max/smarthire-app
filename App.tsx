@@ -5,7 +5,7 @@ import TestRunner from './components/TestRunner';
 import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
-import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw, AlertTriangle } from 'lucide-react';
+import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw, AlertTriangle, RotateCcw } from 'lucide-react';
 import { SCRIPT_URL } from './services/geminiService';
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -44,6 +44,22 @@ export default function App() {
       url.search = '';
       window.history.replaceState({}, '', url.toString());
       window.location.reload();
+    } else {
+      setResults([]);
+      setCompletedSections([]);
+      setCandidateInfo(null);
+      setActiveSectionId(null);
+    }
+  };
+
+  const handleRetake = () => {
+    if (confirm("Вы уверены, что хотите сбросить все результаты и пройти тестирование заново?")) {
+      // Очищаем только результаты тестов, оставляя анкету и авторизацию
+      setResults([]);
+      setCompletedSections([]);
+      localStorage.removeItem('sh_results');
+      localStorage.removeItem('sh_completed');
+      setActiveSectionId(null);
     }
   };
 
@@ -51,16 +67,6 @@ export default function App() {
     try {
       const params = new URLSearchParams(window.location.search);
       const jobId = params.get('jobId');
-
-      if (jobId) {
-        setCustomJobId(jobId);
-        setIsAuthenticated(true); // Кандидат авторизован по ссылке
-        setIsHrMode(false);
-        fetchCustomConfig(jobId);
-      } else {
-        const savedAuth = localStorage.getItem('sh_auth');
-        if (savedAuth === 'true') setIsAuthenticated(true);
-      }
 
       const savedResults = localStorage.getItem('sh_results');
       const savedCompleted = localStorage.getItem('sh_completed');
@@ -72,7 +78,17 @@ export default function App() {
       if (savedCompleted) setCompletedSections(JSON.parse(savedCompleted));
       if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
       if (savedCompany) setCurrentCompany(savedCompany);
-      if (savedHrFlag === 'true') setIsHrMode(true);
+
+      if (jobId) {
+        setCustomJobId(jobId);
+        setIsAuthenticated(true);
+        setIsHrMode(false); // ПРИНУДИТЕЛЬНО отключаем режим HR для кандидата
+        fetchCustomConfig(jobId);
+      } else {
+        const savedAuth = localStorage.getItem('sh_auth');
+        if (savedAuth === 'true') setIsAuthenticated(true);
+        if (savedHrFlag === 'true') setIsHrMode(true);
+      }
     } catch (e) {
       setInitError("Ошибка загрузки данных.");
     }
@@ -208,8 +224,14 @@ export default function App() {
 
   const ControlBar = () => (
     <div className="fixed top-4 right-4 z-[9999] flex items-center gap-2">
-      {isHrMode && <button onClick={handleAutofillAll} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2"><Wand2 size={14}/> МАГИЯ</button>}
-      <button onClick={() => resetApp(true)} className="bg-slate-900 border border-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs font-bold"><LogOut size={14}/></button>
+      {isHrMode && (
+        <button onClick={handleAutofillAll} title="Магия (автозаполнение для тестов)" className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-indigo-900/40">
+          <Wand2 size={14}/> МАГИЯ
+        </button>
+      )}
+      <button onClick={() => resetApp(true)} title="Выйти и сбросить" className="bg-slate-900 border border-slate-700 text-slate-300 hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors">
+        <LogOut size={16}/>
+      </button>
     </div>
   );
 
@@ -257,7 +279,7 @@ export default function App() {
   if (completedSections.length === testSections.length) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <ResultsView results={results} candidateInfo={candidateInfo} onReset={() => resetApp(true)} scriptUrl={SCRIPT_URL} isHrView={isHrMode} jobId={customJobId || ""} />
+        <ResultsView results={results} candidateInfo={candidateInfo} onReset={() => resetApp(true)} scriptUrl={SCRIPT_URL} isHrView={isHrMode} jobId={customJobId || ""} onRetake={handleRetake} />
       </div>
     );
   }
@@ -268,6 +290,11 @@ export default function App() {
       <header className="max-w-7xl mx-auto py-12 px-6 text-center">
         <h1 className="text-4xl font-black text-white mb-2">Портал Тестирования</h1>
         <p className="text-slate-400">Добро пожаловать, {candidateInfo?.name}.</p>
+        {completedSections.length > 0 && (
+          <button onClick={handleRetake} className="mt-4 flex items-center gap-2 mx-auto text-slate-500 hover:text-red-400 transition-colors text-xs font-bold uppercase tracking-widest">
+            <RotateCcw size={14}/> Сбросить прогресс и начать заново
+          </button>
+        )}
       </header>
       <main className="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-6">
         {testSections.map(s => {
