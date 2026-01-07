@@ -1,6 +1,6 @@
 
 // ============================================================
-// БЭКЕНД: GOOGLE APPS SCRIPT (YANDEX GPT EDITION)
+// БЭКЕНД: GOOGLE APPS SCRIPT (EXTENDED EDITION)
 // ============================================================
 
 var SHEET_ID = "ВАШ_ID_ТАБЛИЦЫ"; 
@@ -26,16 +26,7 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.tryLock(15000); 
   try {
-    if (!e || !e.postData || !e.postData.contents) {
-      return createJsonResponse({status: "error", message: "Empty request"});
-    }
-    
     var data = JSON.parse(e.postData.contents);
-    
-    if (data.action === "PROXY_AI") {
-      return createJsonResponse(callYandexGPT(data.prompt));
-    }
-
     var ss = getSpreadsheet();
 
     if (data.action === "SAVE_CONFIG") {
@@ -51,63 +42,22 @@ function doPost(e) {
     if (data.action === "SAVE_RESULT") {
       var dataSheet = ss.getSheetByName("Data") || ss.insertSheet("Data");
       if (dataSheet.getLastRow() === 0) {
-         dataSheet.appendRow(["Date", "Name", "Role", "Status", "Result", "IQ", "Reliability", "Emotionality", "Drivers", "SJT Score", "Work Answer", "AI Report", "Hexaco JSON", "Company", "JobID"]);
+         dataSheet.appendRow(["Date", "Name", "Role", "Status", "Result", "IQ", "Reliability", "Emotionality", "Drivers", "SJT Score", "Work Answer", "AI Report", "Hexaco JSON", "Company", "JobID", "Motivation JSON"]);
       }
       dataSheet.appendRow([
-        new Date(), 
-        data.candidateName, 
-        data.candidateRole, 
-        data.statusText, 
-        "Passed",
-        data.iqScore, 
-        data.reliability, 
-        data.emotionality, 
+        new Date(), data.candidateName, data.candidateRole, data.statusText, "Passed",
+        data.iqScore, data.reliability, data.emotionality, 
         data.topDrivers ? data.topDrivers.map(function(d){return d.name}).join(", ") : "",
-        data.sjtScore || 0, 
-        data.workSampleAnswer || "", 
-        data.aiAnalysis || "",
-        JSON.stringify(data.hexacoScoresMap || {}), 
-        data.company,
-        data.jobId || ""
+        data.sjtScore || 0, data.workSampleAnswer || "", data.aiAnalysis || "",
+        data.hexacoJson || "{}", data.company, data.jobId || "", data.motivationJson || "{}"
       ]);
       return createJsonResponse({status: "success"});
     }
-
     return createJsonResponse({status: "error", message: "Unknown action"});
   } catch (err) {
     return createJsonResponse({status: "error", message: err.toString() });
   } finally {
     lock.releaseLock();
-  }
-}
-
-function callYandexGPT(prompt) {
-  try {
-    var url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
-    var payload = {
-      "modelUri": "gpt://" + YANDEX_FOLDER_ID + "/yandexgpt/latest",
-      "completionOptions": { "temperature": 0.3, "maxTokens": "2000" },
-      "messages": [
-        { "role": "system", "text": "Ты профессиональный HR-аналитик. Пиши только чистый текст с HTML тегами <h3> и <b>. ЗАПРЕЩЕНО использовать markdown (```), слова 'html' или 'yandexgpt'." },
-        { "role": "user", "text": prompt }
-      ]
-    };
-    
-    var options = {
-      "method": "post",
-      "headers": { "Authorization": "Api-Key " + YANDEX_API_KEY, "x-folder-id": YANDEX_FOLDER_ID },
-      "payload": JSON.stringify(payload),
-      "muteHttpExceptions": true
-    };
-    
-    var response = UrlFetchApp.fetch(url, options);
-    var json = JSON.parse(response.getContentText());
-    if (json.result && json.result.alternatives && json.result.alternatives[0]) {
-      return { status: "success", text: json.result.alternatives[0].message.text };
-    }
-    return { status: "error", message: response.getContentText() };
-  } catch (err) {
-    return { status: "error", message: err.toString() };
   }
 }
 
@@ -137,20 +87,12 @@ function doGet(e) {
       var data = sheet.getDataRange().getValues();
       var candidates = [];
       for (var i = 1; i < data.length; i++) {
-        // Проверяем 15-й столбец (JobID)
         if (data[i][14] == jobId) {
           candidates.push({
-            date: data[i][0],
-            name: data[i][1],
-            role: data[i][2],
-            status: data[i][3],
-            iq: data[i][5],
-            reliability: data[i][6],
-            emotionality: data[i][7],
-            drivers: data[i][8],
-            sjtScore: data[i][9],
-            workAnswer: data[i][10],
-            aiReport: data[i][11]
+            date: data[i][0], name: data[i][1], role: data[i][2], status: data[i][3],
+            iq: data[i][5], reliability: data[i][6], drivers: data[i][8],
+            sjtScore: data[i][9], workAnswer: data[i][10], aiReport: data[i][11],
+            hexacoJson: data[i][12], motivationJson: data[i][15]
           });
         }
       }
@@ -162,12 +104,9 @@ function doGet(e) {
       var sheet = ss.getSheetByName("Configs");
       var data = sheet.getDataRange().getValues();
       for (var i = 1; i < data.length; i++) {
-        if (data[i][0] == jobId) {
-          return ContentService.createTextOutput(data[i][2]).setMimeType(ContentService.MimeType.JSON);
-        }
+        if (data[i][0] == jobId) return createJsonResponse(JSON.parse(data[i][2]));
       }
     }
-    
     return createJsonResponse({status: "error", message: "Not found"});
   } catch (err) {
     return createJsonResponse({status: "error", message: err.toString()});
