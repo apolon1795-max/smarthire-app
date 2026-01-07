@@ -4,7 +4,7 @@ import TestRunner from './components/TestRunner';
 import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
-import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw, Trash2 } from 'lucide-react';
+import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw, Trash2, Home } from 'lucide-react';
 import { SCRIPT_URL } from './services/geminiService';
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -30,8 +30,29 @@ export default function App() {
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [showHrBuilder, setShowHrBuilder] = useState(false);
 
-  // --- LOCAL STORAGE LOAD ---
+  const resetApp = () => {
+    localStorage.clear();
+    setIsAuthenticated(false);
+    setCandidateInfo(null);
+    setResults([]);
+    setCompletedSections([]);
+    setActiveSectionId(null);
+    setShowHrBuilder(false);
+    setIsHrMode(false);
+    // Очищаем URL и перезагружаем
+    window.location.href = window.location.pathname;
+  };
+
+  // --- INITIAL LOAD & URL OVERRIDES ---
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    
+    // ЭКСТРЕННЫЙ СБРОС через URL: ?admin=true или ?reset=true
+    if (params.get('admin') === 'true' || params.get('reset') === 'true') {
+      resetApp();
+      return;
+    }
+
     const savedResults = localStorage.getItem('sh_results');
     const savedCompleted = localStorage.getItem('sh_completed');
     const savedCandidate = localStorage.getItem('sh_candidate');
@@ -46,7 +67,6 @@ export default function App() {
     if (savedActiveSection) setActiveSectionId(savedActiveSection);
     if (savedHrFlag === 'true') setIsHrMode(true);
 
-    const params = new URLSearchParams(window.location.search);
     const jobId = params.get('jobId');
     if (jobId) {
       setCustomJobId(jobId);
@@ -54,8 +74,10 @@ export default function App() {
     }
   }, []);
 
-  // --- LOCAL STORAGE SAVE ---
+  // --- LOCAL STORAGE SYNC ---
   useEffect(() => {
+    if (!candidateInfo && !isAuthenticated && results.length === 0) return;
+    
     localStorage.setItem('sh_results', JSON.stringify(results));
     localStorage.setItem('sh_completed', JSON.stringify(completedSections));
     if (candidateInfo) localStorage.setItem('sh_candidate', JSON.stringify(candidateInfo));
@@ -269,18 +291,6 @@ export default function App() {
   };
 
   const startTest = (id: string) => setActiveSectionId(id);
-  
-  const resetApp = () => {
-    localStorage.clear();
-    setIsAuthenticated(false);
-    setCandidateInfo(null);
-    setResults([]);
-    setCompletedSections([]);
-    setActiveSectionId(null);
-    setShowHrBuilder(false);
-    setIsHrMode(false);
-    window.location.href = window.location.pathname;
-  };
 
   const handleRegistrationSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -303,6 +313,22 @@ export default function App() {
 
   if (isLoadingConfig) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold animate-pulse">Загрузка портала...</div>;
   if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} onExit={() => setShowHrBuilder(false)} onTestPreview={handleTestPreview} />;
+
+  // --- FLOATING CONTROL BAR (ALWAYS VISIBLE FOR NAVIGATION) ---
+  const ControlBar = () => (
+    <div className="fixed top-4 right-4 z-[9999] flex items-center gap-2">
+      {isHrMode && candidateInfo && (
+        <button onClick={handleAutofillAll} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xl shadow-indigo-900/40">
+          <Wand2 size={14}/> МАГИЯ (АВТО)
+        </button>
+      )}
+      {(candidateInfo || isAuthenticated || customJobId) && (
+        <button onClick={resetApp} className="flex items-center gap-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 text-slate-300 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg hover:bg-red-900/40 hover:border-red-500/50">
+          <LogOut size={14}/> ВЫЙТИ В ГЛАВНОЕ МЕНЮ
+        </button>
+      )}
+    </div>
+  );
 
   // --- RENDERING LOGIC ---
   if (!customJobId && !isAuthenticated && !candidateInfo) {
@@ -330,6 +356,7 @@ export default function App() {
   if (customJobId && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+        <ControlBar />
         <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
           <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30">
@@ -344,10 +371,6 @@ export default function App() {
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Войти в систему</button>
           </form>
-          
-          <button onClick={resetApp} className="mt-8 text-slate-500 hover:text-white text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 mx-auto transition-colors">
-            <LogOut size={14}/> Сбросить сессию / Выйти
-          </button>
         </div>
       </div>
     );
@@ -356,6 +379,7 @@ export default function App() {
   if (isAuthenticated && !candidateInfo) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <ControlBar />
         <div className="max-w-md w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
           <div className="text-center mb-8">
@@ -371,10 +395,6 @@ export default function App() {
             </div>
             <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4 transition-all">НАЧАТЬ ТЕСТ</button>
           </form>
-          
-          <button onClick={resetApp} className="mt-8 text-slate-500 hover:text-white text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 mx-auto transition-colors">
-            <RefreshCcw size={14}/> СБРОСИТЬ И ВЫЙТИ
-          </button>
         </div>
       </div>
     );
@@ -392,17 +412,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
+      <ControlBar />
       <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center relative">
-        <div className="absolute top-4 right-4 flex items-center gap-2">
-           {isHrMode && (
-             <button onClick={handleAutofillAll} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-900/40">
-               <Wand2 size={14}/> МАГИЯ (АВТОЗАПОЛНЕНИЕ)
-             </button>
-           )}
-           <button onClick={resetApp} className="flex items-center gap-2 bg-slate-900 border border-slate-800 text-slate-400 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all">
-             <LogOut size={14}/> ВЫЙТИ
-           </button>
-        </div>
         <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>.</p>
       </header>
@@ -427,7 +438,7 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 text-center">
+      <footer className="max-w-7xl mx-auto px-4 sm:px-6 pb-12 text-center opacity-30 hover:opacity-100 transition-opacity">
          <button onClick={resetApp} className="inline-flex items-center gap-2 text-slate-700 hover:text-red-500/60 transition-colors text-xs font-bold uppercase tracking-widest">
            <Trash2 size={14}/> Очистить все кэшированные данные (Экстренно)
          </button>
