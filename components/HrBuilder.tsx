@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { generateCustomQuestions, generateCandidateProfile } from '../services/geminiService';
 import { CustomTestConfig, JobListing, BenchmarkData } from '../types';
-// Fixed: Added 'Briefcase as CaseIcon' to the lucide-react imports to resolve ReferenceErrors.
 import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Target, Zap, RefreshCw, SlidersHorizontal, User, ShieldCheck, Activity, Check, AlertTriangle, Briefcase as CaseIcon } from 'lucide-react';
 
 interface HrBuilderProps {
@@ -46,7 +45,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     setView('manage');
     setIsLoadingJobs(true);
     try {
-      // 1. Сначала получаем конфиг вакансии для актуального эталона
+      // 1. Получаем конфиг вакансии для актуального эталона
       const configResp = await fetch(`${scriptUrl}?action=GET_JOB_CONFIG&jobId=${jobId}`);
       const configData = await configResp.json();
       const currentBenchmark = configData.benchmark || DEFAULT_BENCHMARK;
@@ -60,7 +59,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         let hexaco = [];
         let motivation = null;
         try {
-          const hStr = (c.hexacoJson && c.hexacoJson !== '{}') ? c.hexacoJson : '[]';
+          const hStr = (c.hexacoJson && c.hexacoJson !== '{}' && c.hexacoJson !== '[]') ? c.hexacoJson : '[]';
           hexaco = typeof hStr === 'string' ? JSON.parse(hStr) : hStr;
           if (!Array.isArray(hexaco)) hexaco = [];
         } catch(e) { hexaco = []; }
@@ -96,7 +95,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         // Обновляем локальных кандидатов новым эталоном для пересчета Fit Score
         setJobCandidates(prev => prev.map(c => ({ ...c, jobBenchmark: benchmark })));
         setIsEditingBenchmark(false);
-        // Если отчет открыт, обновляем его тоже
         if (activeReport) {
             setActiveReport(prev => ({ ...prev, jobBenchmark: benchmark }));
         }
@@ -113,17 +111,13 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
   const calculateFit = (report: any) => {
     if (!report || !report.jobBenchmark) return 0;
     const b = report.jobBenchmark;
-    // IQ score (0-1)
     const iqVal = report.iq || 0;
     const iqScore = 1 - Math.abs(iqVal - b.iq) / 12;
-    // Reliability score (0-1)
     const relVal = report.reliability || 0;
     const relScore = 1 - Math.abs(relVal - b.reliability) / 100;
-    // SJT score (0-1)
     const sjtVal = report.sjtScore || 0;
     const sjtScore = 1 - Math.abs(sjtVal - b.sjt) / 8;
     
-    // Average
     const final = ((iqScore + relScore + sjtScore) / 3) * 100;
     return Math.max(0, Math.min(100, Math.round(final)));
   };
@@ -139,11 +133,11 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         { sectionId: 'motivation', title: 'Драйверы', percentage: 100, motivationProfile: activeReport.motivation },
         { sectionId: 'work_sample', title: 'Практическое Задание', percentage: 100, textAnswer: activeReport.workAnswer }
       ] as any;
-      const newReport = await generateCandidateProfile(mockResults, { name: activeReport.name, role: activeReport.role } as any, benchmark);
+      const newReport = await generateCandidateProfile(mockResults, { name: activeReport.name, role: activeReport.role } as any);
       setActiveReport({ ...activeReport, aiReport: newReport });
     } catch (e) { 
       console.error("AI Reanalysis Error:", e);
-      alert("Ошибка при обновлении ИИ-отчета. Проверьте соединение."); 
+      alert("Ошибка при обновлении ИИ-отчета."); 
     }
     finally { setIsReanalyzing(false); }
   };
@@ -159,7 +153,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         <div className="fixed inset-0 z-[10000] bg-slate-950/98 backdrop-blur-2xl p-4 sm:p-10 overflow-y-auto custom-scrollbar">
           <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-[3rem] p-8 lg:p-14 shadow-3xl animate-in zoom-in-95 duration-500">
             
-            {/* ШАПКА МОДАЛКИ (Без перекрытия) */}
             <div className="flex flex-col lg:flex-row justify-between items-start gap-8 mb-12 border-b border-slate-800 pb-10">
               <div className="flex items-center gap-6">
                 <button onClick={() => setActiveReport(null)} className="bg-slate-800 hover:bg-slate-700 p-4 rounded-2xl text-white transition-all flex items-center justify-center shrink-0">
@@ -182,7 +175,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
               </div>
             </div>
 
-            {/* ОСНОВНЫЕ МЕТРИКИ */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
                <div className="bg-slate-950 p-8 rounded-[2rem] border border-slate-800">
                   <div className="text-[10px] text-slate-500 font-black uppercase mb-4 tracking-widest">Интеллект (IQ)</div>
@@ -203,13 +195,12 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                </div>
                <div className="bg-slate-950 p-8 rounded-[2rem] border border-slate-800">
                   <div className="text-[10px] text-slate-500 font-black uppercase mb-4 tracking-widest">Драйверы</div>
-                  <div className="text-[11px] font-black text-slate-300 leading-relaxed uppercase break-words">
+                  <div className="text-[11px] font-black text-slate-300 leading-relaxed uppercase whitespace-normal">
                     {activeReport.drivers || "Не определено"}
                   </div>
                </div>
             </div>
 
-            {/* ГРАФИКИ HEXACO */}
             <div className="mb-14">
               <h3 className="text-white font-black text-sm uppercase tracking-widest mb-8 flex items-center gap-3">
                 <Activity size={20} className="text-blue-500"/> 6 Граней личности (HEXACO)
@@ -234,7 +225,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
               </div>
             </div>
 
-            {/* ИИ-АНАЛИЗ */}
             <div className="space-y-12">
                <section>
                   <h3 className="text-white font-black mb-8 flex items-center gap-3 text-sm uppercase tracking-[0.3em] border-l-4 border-blue-500 pl-6">Глубокая HR-аналитика</h3>
@@ -246,10 +236,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                             dangerouslySetInnerHTML={{ __html: activeReport.aiReport }} />
                      ) : (
                        <div className="text-center py-20">
-                          <p className="text-slate-600 italic mb-6">Нажмите кнопку «Обновить ИИ-отчет» для генерации анализа на базе эталонного кандидата.</p>
-                          <button onClick={reanalyzeWithBenchmark} className="text-blue-400 font-black uppercase text-xs tracking-widest hover:text-white transition-all flex items-center gap-2 mx-auto">
-                             <Zap size={14}/> Сгенерировать сейчас
-                          </button>
+                          <p className="text-slate-600 italic mb-6">Анализ еще не сгенерирован.</p>
                        </div>
                      )}
                   </div>
@@ -259,7 +246,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* ШАПКА КАБИНЕТА */}
       <div className="flex flex-col sm:flex-row justify-between items-center mb-12 pb-8 border-b border-slate-800 gap-6">
         <div className="flex items-center gap-5">
           <div className="p-4 bg-blue-600/20 rounded-2xl text-blue-400 shadow-lg shadow-blue-500/10"><BarChart size={32} /></div>
@@ -280,7 +266,6 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       </div>
 
-      {/* УПРАВЛЕНИЕ ВАКАНСИЕЙ И ЭТАЛОНОМ */}
       {view === 'manage' && (
         <div className="space-y-10 animate-in slide-in-from-right-4 duration-500">
            <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
@@ -333,107 +318,83 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                     <div className="flex justify-between mt-3 text-[9px] text-slate-700 font-bold uppercase"><span>0</span><span>Max (8)</span></div>
                   </div>
                 </div>
-                <div className="mt-10 p-4 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-center">
-                   <p className="text-[10px] text-indigo-300 font-bold uppercase tracking-widest italic flex items-center justify-center gap-2">
-                      <ShieldCheck size={14}/> Данные сохраняются в облаке и будут применены ко всем текущим и будущим откликам.
-                   </p>
-                </div>
              </div>
            )}
 
            <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-8 sm:p-12 shadow-2xl">
               <div className="flex flex-col sm:flex-row justify-between items-end mb-12 gap-4">
                  <h2 className="text-3xl font-black text-white">Кандидаты <span className="text-blue-500 ml-2 bg-blue-500/10 px-4 py-1 rounded-2xl border border-blue-500/20 text-xl">{jobCandidates.length}</span></h2>
-                 <p className="text-slate-500 text-xs font-bold uppercase tracking-widest italic">Сортировка по Fit Score</p>
               </div>
               
-              {jobCandidates.length === 0 ? (
-                 <div className="text-center py-24 border-2 border-dashed border-slate-800 rounded-[2.5rem]">
-                    <User className="mx-auto text-slate-800 mb-6" size={64}/>
-                    <div className="text-slate-600 uppercase font-black tracking-widest">Откликов пока не поступало</div>
-                 </div>
-              ) : (
-                 <div className="overflow-x-auto custom-scrollbar">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-800 text-slate-600 text-[10px] font-black uppercase tracking-[0.25em]">
-                          <th className="pb-8 px-6">ФИО Кандидата</th>
-                          <th className="pb-8 px-6 text-center">IQ</th>
-                          <th className="pb-8 px-6 text-center">Надежность</th>
-                          <th className="pb-8 px-6 text-center">Fit Score</th>
-                          <th className="pb-8 px-6 text-right">Действия</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...jobCandidates].sort((a,b) => calculateFit(b) - calculateFit(a)).map((c, idx) => (
-                          <tr key={idx} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-all cursor-pointer" onClick={() => setActiveReport(c)}>
-                            <td className="py-8 px-6">
-                               <div className="text-white font-black text-lg group-hover:text-blue-400 transition-colors">{c.name}</div>
-                               <div className="text-slate-500 text-[10px] uppercase font-bold mt-1 tracking-widest">{new Date(c.date).toLocaleDateString()}</div>
-                            </td>
-                            <td className="py-8 px-6 text-center font-black text-white text-2xl">{c.iq || 0}</td>
-                            <td className="py-8 px-6 text-center">
-                               <div className={`font-black text-2xl ${c.reliability > 70 ? 'text-green-400' : c.reliability > 40 ? 'text-yellow-400' : 'text-red-400'}`}>
-                                 {c.reliability || 0}%
-                               </div>
-                            </td>
-                            <td className="py-8 px-6 text-center">
-                               <div className="inline-block px-5 py-2 rounded-2xl font-black text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-lg shadow-blue-500/5">
-                                 {calculateFit(c)}%
-                               </div>
-                            </td>
-                            <td className="py-8 px-6 text-right">
-                               <button className="p-4 bg-slate-950 text-slate-500 hover:text-white rounded-2xl border border-slate-800 group-hover:border-blue-500/50 transition-all shadow-xl">
-                                  <FileText size={20}/>
-                               </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                 </div>
-              )}
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-600 text-[10px] font-black uppercase tracking-[0.25em]">
+                      <th className="pb-8 px-6">ФИО Кандидата</th>
+                      <th className="pb-8 px-6 text-center">IQ</th>
+                      <th className="pb-8 px-6 text-center">Надежность</th>
+                      <th className="pb-8 px-6 text-center">Fit Score</th>
+                      <th className="pb-8 px-6 text-right">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobCandidates.sort((a,b) => calculateFit(b) - calculateFit(a)).map((c, idx) => (
+                      <tr key={idx} className="group border-b border-slate-800/50 hover:bg-slate-800/30 transition-all cursor-pointer" onClick={() => setActiveReport(c)}>
+                        <td className="py-8 px-6">
+                           <div className="text-white font-black text-lg group-hover:text-blue-400 transition-colors">{c.name}</div>
+                           <div className="text-slate-500 text-[10px] uppercase font-bold mt-1 tracking-widest">{new Date(c.date).toLocaleDateString()}</div>
+                        </td>
+                        <td className="py-8 px-6 text-center font-black text-white text-2xl">{c.iq || 0}</td>
+                        <td className="py-8 px-6 text-center">
+                           <div className={`font-black text-2xl ${c.reliability > 70 ? 'text-green-400' : c.reliability > 40 ? 'text-yellow-400' : 'text-red-400'}`}>
+                             {c.reliability || 0}%
+                           </div>
+                        </td>
+                        <td className="py-8 px-6 text-center">
+                           <div className="inline-block px-5 py-2 rounded-2xl font-black text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                             {calculateFit(c)}%
+                           </div>
+                        </td>
+                        <td className="py-8 px-6 text-right">
+                           <button className="p-4 bg-slate-950 text-slate-500 hover:text-white rounded-2xl border border-slate-800 transition-all">
+                              <FileText size={20}/>
+                           </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
            </div>
         </div>
       )}
 
-      {/* ГЛАВНАЯ ПАНЕЛЬ (ВАКАНСИИ) */}
       {view === 'dashboard' && (
         <div className="space-y-10 animate-in fade-in duration-500">
           <div className="flex justify-between items-end mb-6">
              <div>
                 <h2 className="text-2xl font-black text-white flex items-center gap-3"><List size={28} className="text-blue-500"/> Доступные вакансии</h2>
-                <p className="text-slate-500 text-xs mt-1 font-bold">Выберите вакансию для управления или просмотра аналитики.</p>
              </div>
-             <button onClick={() => setView('create')} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-3 shadow-xl shadow-blue-900/20 transition-all active:scale-95"><Plus size={24}/> СОЗДАТЬ</button>
+             <button onClick={() => setView('create')} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black flex items-center gap-3 transition-all"><Plus size={24}/> СОЗДАТЬ</button>
           </div>
           
-          {isLoadingJobs ? (
-            <div className="py-32 text-center"><Loader2 className="animate-spin text-blue-500 mx-auto" size={48}/></div>
-          ) : jobs.length === 0 ? (
-            <div className="py-32 text-center border-2 border-dashed border-slate-800 rounded-[3rem] bg-slate-900/20">
-               <CaseIcon className="mx-auto text-slate-800 mb-6" size={64}/>
-               <p className="text-slate-600 font-black uppercase tracking-widest">Список вакансий пуст. Нажмите «Создать».</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {jobs.map(job => (
-                <div key={job.jobId} className="group bg-slate-900 border border-slate-800 rounded-[2.5rem] p-10 hover:border-blue-500/30 transition-all hover:shadow-2xl hover:shadow-blue-900/10 flex flex-col justify-between h-full relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.07] transition-all"><CaseIcon size={120} /></div>
-                  <div>
-                    <div className="flex justify-between items-start mb-6">
-                       <span className="bg-blue-500/10 text-blue-400 text-[9px] font-black uppercase px-3 py-1 rounded-lg border border-blue-500/20">{job.jobId}</span>
-                       {job.hasBenchmark && <CheckCircle className="text-green-500" size={18}/>}
-                    </div>
-                    <h3 className="text-2xl font-black text-white mb-8 group-hover:text-blue-400 transition-colors">{job.jobTitle}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {jobs.map(job => (
+              <div key={job.jobId} className="group bg-slate-900 border border-slate-800 rounded-[2.5rem] p-10 hover:border-blue-500/30 transition-all flex flex-col justify-between h-full relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.07] transition-all"><CaseIcon size={120} /></div>
+                <div>
+                  <div className="flex justify-between items-start mb-6">
+                     <span className="bg-blue-500/10 text-blue-400 text-[9px] font-black uppercase px-3 py-1 rounded-lg border border-blue-500/20">{job.jobId}</span>
+                     {job.hasBenchmark && <CheckCircle className="text-green-500" size={18}/>}
                   </div>
-                  <button onClick={() => loadCandidates(job.jobId)} className="w-full bg-slate-950 hover:bg-blue-600 text-slate-400 hover:text-white py-5 rounded-2xl font-black text-xs uppercase flex items-center justify-center gap-3 transition-all border border-slate-800 group-hover:border-blue-500/50 shadow-lg">
-                    КАНДИДАТЫ <ChevronRight size={16}/>
-                  </button>
+                  <h3 className="text-2xl font-black text-white mb-8 group-hover:text-blue-400 transition-colors">{job.jobTitle}</h3>
                 </div>
-              ))}
-            </div>
-          )}
+                <button onClick={() => loadCandidates(job.jobId)} className="w-full bg-slate-950 hover:bg-blue-600 text-slate-400 hover:text-white py-5 rounded-2xl font-black text-xs uppercase flex items-center justify-center gap-3 transition-all border border-slate-800">
+                  КАНДИДАТЫ <ChevronRight size={16}/>
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
