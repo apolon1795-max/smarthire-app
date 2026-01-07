@@ -4,14 +4,14 @@ export type TestType = 'intelligence' | 'conscientiousness' | 'motivation' | 'sj
 export interface Option {
   id: string;
   text: string;
-  value: number; // Score value for this option
+  value: number;
 }
 
 export interface Question {
   id: string;
   text: string;
-  type: 'single-choice' | 'likert' | 'scenario' | 'text'; // Added scenario & text
-  options?: Option[]; // Optional for likert (implied 1-5)
+  type: 'single-choice' | 'likert' | 'scenario' | 'text';
+  options?: Option[];
   imageUrl?: string; 
 }
 
@@ -20,47 +20,53 @@ export interface TestSection {
   title: string;
   description: string;
   timeLimitMinutes?: number;
-  displayMode: 'step' | 'scroll'; // 'step' for IQ, 'scroll' for personality
-  scaleMax?: number; // Added for Motivation test (1-6 scale)
+  displayMode: 'step' | 'scroll';
+  scaleMax?: number;
   questions: Question[];
+}
+
+export interface BenchmarkData {
+  iq: number;
+  hexaco: Record<string, number>; // Factor code -> average (1-5)
+  drivers: string[]; // Names of top 3 drivers
 }
 
 export interface CustomTestConfig {
   jobId: string;
   jobTitle: string;
+  company: string; // Added for multi-tenancy
   sjtQuestions: Question[];
   workSampleQuestion: Question;
+  benchmark?: BenchmarkData; 
 }
 
 export interface UserAnswers {
-  [questionId: string]: number | string; // Changed to support text answers
+  [questionId: string]: number | string;
 }
 
 export interface HexacoScore {
-  factor: string;     // e.g., 'Honesty-Humility'
-  code: string;       // e.g., 'H'
+  factor: string;
+  code: string;
   rawScore: number;
   questionCount: number;
-  average: number;    // 1-5 scale
-  percentage: number; // 0-100 scale
+  average: number;
+  percentage: number;
 }
 
-// --- Motivation Specific Types ---
-
 export interface ValueScore {
-  name: string;      // e.g. "Самостоятельность / мысли"
-  code: string;      // e.g. "SELF_THOUGHT"
+  name: string;
+  code: string;
   score: number;
 }
 
 export interface BlockScore {
-  name: string;      // e.g. "Открытость изменениям"
+  name: string;
   score: number;
   description?: string;
 }
 
 export interface DriverScore {
-  name: string;      // e.g. "Деньги"
+  name: string;
   score: number;
   rank: number;
   recommendation?: string;
@@ -73,23 +79,23 @@ export interface MotivationProfile {
   topDrivers: DriverScore[];
 }
 
-// --- Anti-Fake / Validity Types ---
 export interface ValidityProfile {
-  attentionPassed: boolean; // Did they follow the instruction "Select 1"?
-  lieScore: number;         // Average of social desirability questions (1-5). High > 4 is suspicious.
-  statusLabel: string;      // "Valid", "Attention Fail", "Social Desirability Risk"
+  attentionPassed: boolean;
+  lieScore: number;
+  statusLabel: string;
 }
 
 export interface TestResult {
   sectionId: TestType;
+  title: string;
   rawScore: number;
   maxScore: number;
   percentage: number;
   answers?: UserAnswers; 
   hexacoProfile?: HexacoScore[]; 
   motivationProfile?: MotivationProfile; 
-  validityProfile?: ValidityProfile; // Added for Anti-Fake
-  textAnswer?: string; // For Work Sample
+  validityProfile?: ValidityProfile;
+  textAnswer?: string;
 }
 
 export interface CandidateInfo {
@@ -97,4 +103,12 @@ export interface CandidateInfo {
   age: string;
   department: string;
   role: string;
+}
+
+export interface JobListing {
+  jobId: string;
+  jobTitle: string;
+  company: string; // Added for filtering
+  dateCreated: string;
+  hasBenchmark: boolean;
 }
