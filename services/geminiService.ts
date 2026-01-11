@@ -1,7 +1,9 @@
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../types";
 
-export const SCRIPT_URL = 'https://script.google.com/macros/s/ВАШ_УНИКАЛЬНЫЙ_ID/exec';
+// ВАЖНО: Вставьте сюда свой актуальный URL веб-приложения Google Apps Script
+// Он должен заканчиваться на /exec
+export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -43,19 +45,23 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     Используй HTML теги <h3> для заголовков и <b> для жирного шрифта. Не используй markdown.
   `;
 
+  const systemInstruction = "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой, проницательный. Формат вывода: чистый текст с HTML тегами <h3> и <b>.";
+
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        systemInstruction: "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой, проницательный. Формат вывода: чистый текст с HTML тегами <h3> и <b>.",
+        systemInstruction: systemInstruction,
       }
     });
-
-    return response.text || "Не удалось сгенерировать отчет.";
+    return response.text || "Ошибка генерации отчета.";
   } catch (e: any) {
-    console.error("AI Service Error:", e);
-    return `<div style="color: red">Ошибка генерации отчета: ${e.message}</div>`;
+    console.error("Gemini Error:", e);
+    return `<div style="color: red; padding: 20px; border: 1px solid red; border-radius: 10px;">
+      <h3>Ошибка генерации</h3>
+      <p>${e.message}</p>
+    </div>`;
   }
 };
 
@@ -64,74 +70,55 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
     Создай тест для вакансии "${jobRole}".
     Контекст и проблемы: "${challenges}".
     
-    Мне нужен тест с:
-    - 4 ситуационными вопросами (sjtQuestions)
-    - 1 практическим заданием (workSampleQuestion)
+    Мне нужен JSON объект с такой структурой:
+    {
+      "sjtQuestions": [
+        {
+          "id": "sjt_1",
+          "text": "Описание ситуации...",
+          "type": "scenario",
+          "options": [
+             {"id": "o1", "text": "Вариант действия 1", "value": 0},
+             {"id": "o2", "text": "Вариант действия 2", "value": 2},
+             {"id": "o3", "text": "Вариант действия 3", "value": 1}
+          ]
+        },
+        ... (всего 4 вопроса)
+      ],
+      "workSampleQuestion": {
+        "id": "work_1",
+        "text": "Текст практического задания...",
+        "type": "text"
+      }
+    }
   `;
 
+  const systemInstruction = "Ты HR-методолог и программист. Ты генерируешь структуру тестов строго в формате JSON.";
+
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        systemInstruction: "Ты HR-методолог и программист. Ты генерируешь структуру тестов строго в формате JSON.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            sjtQuestions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  text: { type: Type.STRING },
-                  type: { type: Type.STRING },
-                  options: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        id: { type: Type.STRING },
-                        text: { type: Type.STRING },
-                        value: { type: Type.NUMBER },
-                      },
-                      required: ["id", "text", "value"],
-                    },
-                  },
-                },
-                required: ["id", "text", "type", "options"],
-              },
-            },
-            workSampleQuestion: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING },
-                text: { type: Type.STRING },
-                type: { type: Type.STRING },
-              },
-              required: ["id", "text", "type"],
-            },
-          },
-          required: ["sjtQuestions", "workSampleQuestion"],
-        },
+        systemInstruction: systemInstruction,
+        responseMimeType: "application/json"
       }
     });
-    
+
     const text = response.text;
-    if (!text) throw new Error("No response from AI");
+    if (!text) throw new Error("Empty response from AI");
     
     const data = JSON.parse(text);
-    
-    // Ensure types match what UI expects and map if necessary
+
+    // Принудительное выставление типов для UI
     const sjtQuestions = data.sjtQuestions.map((q: any) => ({
       ...q,
-      type: 'scenario' // Enforce 'scenario' type for UI
+      type: 'scenario'
     }));
     
     const workSampleQuestion = {
       ...data.workSampleQuestion,
-      type: 'text' // Enforce 'text' type for UI
+      type: 'text'
     };
 
     return {
