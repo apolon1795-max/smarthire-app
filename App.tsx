@@ -5,7 +5,7 @@ import TestRunner from './components/TestRunner';
 import ResultsView from './components/ResultsView';
 import HrBuilder from './components/HrBuilder';
 import { UserAnswers, TestResult, HexacoScore, MotivationProfile, ValueScore, BlockScore, DriverScore, CandidateInfo, ValidityProfile, CustomTestConfig } from './types';
-import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw, Trash2, Home } from 'lucide-react';
+import { Brain, FileCheck, Target, Layers, CheckCircle2, Circle, UserPlus, Briefcase, Lock, Briefcase as CaseIcon, PenTool, Settings, LogIn, ShieldCheck, Wand2, LogOut, RefreshCcw, AlertTriangle, RotateCcw, ChevronRight, BarChart3, Shield, ArrowLeft } from 'lucide-react';
 import { SCRIPT_URL } from './services/geminiService';
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -16,7 +16,6 @@ const ICONS: Record<string, React.ReactNode> = {
   work_sample: <PenTool size={28} />
 };
 
-// Реестр кодов компаний
 const COMPANY_CODES: Record<string, string> = {
   'YANDEX_HR': 'Yandex',
   'SB_TECH': 'SberDevices',
@@ -32,413 +31,275 @@ export default function App() {
   const [completedSections, setCompletedSections] = useState<string[]>([]);
   const [results, setResults] = useState<TestResult[]>([]);
   const [isHrMode, setIsHrMode] = useState(false);
-  
   const [customJobId, setCustomJobId] = useState<string | null>(null);
   const [testSections, setTestSections] = useState(TEST_DATA);
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [showHrBuilder, setShowHrBuilder] = useState(false);
+  const [showHrLogin, setShowHrLogin] = useState(false);
 
   const resetApp = (fullReload = false) => {
     localStorage.clear();
-    setIsAuthenticated(false);
-    setCurrentCompany('');
-    setCandidateInfo(null);
-    setResults([]);
-    setCompletedSections([]);
-    setActiveSectionId(null);
-    setShowHrBuilder(false);
-    setIsHrMode(false);
-    setCustomJobId(null);
-    setTestSections(TEST_DATA);
-
     if (fullReload) {
-      // Очистка параметров без жесткого редиректа на путь, который может вызвать 404
-      const url = new URL(window.location.href);
-      url.search = '';
-      window.history.replaceState({}, '', url.toString());
-      window.location.reload();
+      window.location.href = window.location.origin + window.location.pathname;
+    } else {
+      setResults([]);
+      setCompletedSections([]);
+      setCandidateInfo(null);
+      setActiveSectionId(null);
+      setIsHrMode(false);
+      setIsAuthenticated(false);
+      setShowHrLogin(false);
+    }
+  };
+
+  const handleRetake = () => {
+    if (confirm("Вы уверены, что хотите сбросить текущие результаты и пройти тесты заново?")) {
+      setResults([]);
+      setCompletedSections([]);
+      localStorage.removeItem('sh_results');
+      localStorage.removeItem('sh_completed');
+      setActiveSectionId(null);
     }
   };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const jobId = params.get('jobId');
+
+    const hrAuth = localStorage.getItem('sh_hr_authenticated');
+    const savedCompany = localStorage.getItem('sh_company');
     
-    if (params.get('admin') === 'true' || params.get('reset') === 'true') {
-      resetApp(true);
+    if (hrAuth === 'true' && !jobId) {
+      setIsAuthenticated(true);
+      setIsHrMode(true);
+      setShowHrBuilder(true);
+      if (savedCompany) setCurrentCompany(savedCompany);
       return;
+    }
+
+    if (jobId) {
+      setCustomJobId(jobId);
+      setIsAuthenticated(true);
+      setIsHrMode(false);
+      fetchCustomConfig(jobId);
+      const savedCandidate = localStorage.getItem('sh_candidate');
+      if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
     }
 
     const savedResults = localStorage.getItem('sh_results');
     const savedCompleted = localStorage.getItem('sh_completed');
-    const savedCandidate = localStorage.getItem('sh_candidate');
-    const savedAuth = localStorage.getItem('sh_auth');
-    const savedCompany = localStorage.getItem('sh_company');
-    const savedActiveSection = localStorage.getItem('sh_active_section_id');
-    const savedHrFlag = localStorage.getItem('sh_is_hr');
-    const savedShowHr = localStorage.getItem('sh_show_hr_builder');
-
     if (savedResults) setResults(JSON.parse(savedResults));
     if (savedCompleted) setCompletedSections(JSON.parse(savedCompleted));
-    if (savedCandidate) setCandidateInfo(JSON.parse(savedCandidate));
-    if (savedAuth === 'true') setIsAuthenticated(true);
-    if (savedCompany) setCurrentCompany(savedCompany);
-    if (savedActiveSection) setActiveSectionId(savedActiveSection);
-    if (savedHrFlag === 'true') setIsHrMode(true);
-    if (savedShowHr === 'true') setShowHrBuilder(true);
-
-    const jobId = params.get('jobId');
-    if (jobId) {
-      setCustomJobId(jobId);
-      fetchCustomConfig(jobId);
-    }
   }, []);
 
   useEffect(() => {
-    // Сохраняем состояние только если мы не в процессе сброса
-    if (!currentCompany && !isAuthenticated && !showHrBuilder) return;
-    
     localStorage.setItem('sh_results', JSON.stringify(results));
     localStorage.setItem('sh_completed', JSON.stringify(completedSections));
     if (candidateInfo) localStorage.setItem('sh_candidate', JSON.stringify(candidateInfo));
     localStorage.setItem('sh_auth', isAuthenticated.toString());
     localStorage.setItem('sh_company', currentCompany);
     localStorage.setItem('sh_is_hr', isHrMode.toString());
-    localStorage.setItem('sh_show_hr_builder', showHrBuilder.toString());
-    if (activeSectionId) localStorage.setItem('sh_active_section_id', activeSectionId);
-    else localStorage.removeItem('sh_active_section_id');
-  }, [results, completedSections, candidateInfo, isAuthenticated, activeSectionId, isHrMode, currentCompany, showHrBuilder]);
+    if (isHrMode) localStorage.setItem('sh_hr_authenticated', 'true');
+  }, [results, completedSections, candidateInfo, isAuthenticated, isHrMode, currentCompany]);
 
-  const injectCustomSections = (data: CustomTestConfig, isPreview = false) => {
+  const fetchCustomConfig = async (jobId: string) => {
+    if (SCRIPT_URL.includes('ВАШ_УНИКАЛЬНЫЙ_ID')) return;
+    setIsLoadingConfig(true);
+    try {
+      const response = await fetch(`${SCRIPT_URL}?action=GET_JOB_CONFIG&jobId=${jobId}`);
+      const data = await response.json();
+      if (data && data.sjtQuestions) injectCustomSections(data);
+    } catch (e) { console.error(e); } finally { setIsLoadingConfig(false); }
+  };
+
+  const injectCustomSections = (data: CustomTestConfig) => {
       const customSections = [...TEST_DATA];
-      customSections.push({
-        id: 'sjt',
-        title: 'Ситуационные Кейсы (SJT)',
-        description: `Решение профессиональных дилемм для роли ${data.jobTitle}.`,
-        displayMode: 'step',
-        questions: data.sjtQuestions
-      });
-      if (data.workSampleQuestion) {
+      if (!customSections.find(s => s.id === 'sjt')) {
         customSections.push({
-          id: 'work_sample',
-          title: 'Практическое Задание',
-          description: 'Комплексный бизнес-кейс в формате "In-Basket". Проверка hard skills.',
-          displayMode: 'step',
-          questions: [data.workSampleQuestion]
+          id: 'sjt', title: 'Ситуационные Кейсы (SJT)', description: `Решение дилемм для роли ${data.jobTitle}.`,
+          displayMode: 'step', questions: data.sjtQuestions
+        });
+      }
+      if (data.workSampleQuestion && !customSections.find(s => s.id === 'work_sample')) {
+        customSections.push({
+          id: 'work_sample', title: 'Практическое Задание', description: 'Кейс в формате "In-Basket".',
+          displayMode: 'step', questions: [data.workSampleQuestion]
         });
       }
       setTestSections(customSections);
-      
-      if (isPreview) {
-        setIsHrMode(true);
-        const info = { name: 'HR Preview', age: '30', department: 'HR Dept', role: data.jobTitle };
-        setCandidateInfo(info);
-        setIsAuthenticated(true);
-        setShowHrBuilder(false);
-      }
-
-      if (data.company) {
-        setCurrentCompany(data.company);
-      }
-  };
-
-  const fetchCustomConfig = async (jobId: string) => {
-    setIsLoadingConfig(true);
-    try {
-      const response = await fetch(`${SCRIPT_URL}?jobId=${jobId}`);
-      const data = await response.json();
-      if (data && data.sjtQuestions) injectCustomSections(data);
-    } catch (e) {
-      console.error("Failed to load custom config", e);
-    } finally {
-      setIsLoadingConfig(false);
-    }
-  };
-
-  const handleTestPreview = (config: CustomTestConfig) => {
-    injectCustomSections(config, true);
-  };
-
-  const calculateHexacoScores = (answers: UserAnswers): HexacoScore[] => {
-    const scores: Record<string, { sum: number; count: number }> = {
-      'H': { sum: 0, count: 0 }, 'E': { sum: 0, count: 0 }, 'X': { sum: 0, count: 0 },
-      'A': { sum: 0, count: 0 }, 'C': { sum: 0, count: 0 }, 'O': { sum: 0, count: 0 },
-    };
-    Object.entries(answers).forEach(([qId, value]) => {
-      const idNum = parseInt(qId);
-      const keyData = HEXACO_KEY[idNum];
-      if (keyData && typeof value === 'number') {
-        const finalValue = keyData.reverse ? (6 - value) : value;
-        if (scores[keyData.code]) { scores[keyData.code].sum += finalValue; scores[keyData.code].count += 1; }
-      }
-    });
-    return Object.entries(scores).map(([code, data]) => {
-      const average = parseFloat((data.count > 0 ? data.sum / data.count : 1).toFixed(2));
-      return {
-        factor: FACTOR_NAMES[code],
-        code: code,
-        rawScore: data.sum,
-        questionCount: data.count,
-        average: average,
-        percentage: ((average - 1) / 4) * 100
-      };
-    });
-  };
-
-  const calculateMotivationProfile = (answers: UserAnswers): MotivationProfile => {
-    const valueTotals: Record<string, { sum: number; count: number }> = {};
-    Object.entries(answers).forEach(([qId, score]) => {
-      const idNum = parseInt(qId);
-      const valueCode = MOTIVATION_MAPPING[idNum];
-      if (valueCode && typeof score === 'number') {
-        if (!valueTotals[valueCode]) valueTotals[valueCode] = { sum: 0, count: 0 };
-        valueTotals[valueCode].sum += score;
-        valueTotals[valueCode].count += 1;
-      }
-    });
-    const values: ValueScore[] = Object.keys(MOTIVATION_NAMES).map(code => {
-      const data = valueTotals[code] || { sum: 0, count: 1 };
-      return { code, name: MOTIVATION_NAMES[code], score: parseFloat((data.sum / data.count).toFixed(1)) };
-    });
-    const blocks: BlockScore[] = Object.entries(MOTIVATION_BLOCKS).map(([blockKey, blockData]) => {
-      const relevantValues = values.filter(v => blockData.values.includes(v.code));
-      const sum = relevantValues.reduce((acc, v) => acc + v.score, 0);
-      const avg = relevantValues.length > 0 ? sum / relevantValues.length : 1;
-      return { name: blockData.name, score: parseFloat(avg.toFixed(2)) };
-    });
-    const drivers: DriverScore[] = Object.entries(MOTIVATION_DRIVERS_LOGIC).map(([key, logic]) => {
-      const relevantValues = values.filter(v => logic.values.includes(v.code));
-      const sum = relevantValues.reduce((acc, v) => acc + v.score, 0);
-      const avg = relevantValues.length > 0 ? sum / relevantValues.length : 1;
-      return { name: logic.name, score: parseFloat(avg.toFixed(1)), rank: 0, recommendation: logic.hint };
-    });
-    drivers.sort((a, b) => b.score - a.score);
-    drivers.forEach((d, idx) => d.rank = idx + 1);
-    return { values, blocks, drivers, topDrivers: drivers.slice(0, 3) };
-  };
-
-  const handleSectionComplete = (sectionId: string, answers: UserAnswers) => {
-    const sectionData = testSections.find(t => t.id === sectionId);
-    if (!sectionData) return;
-    let rawScore = 0;
-    let maxPossibleScore = 0;
-    let hexacoProfile: HexacoScore[] | undefined;
-    let motivationProfile: MotivationProfile | undefined;
-    let validityProfile: ValidityProfile | undefined;
-    let textAnswer: string | undefined;
-
-    if (sectionId === 'conscientiousness') {
-      hexacoProfile = calculateHexacoScores(answers);
-      rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 1;
-      maxPossibleScore = 5;
-      const attentionVal = answers['check_attention'] === 1;
-      const lie1 = typeof answers['check_lie_1'] === 'number' ? answers['check_lie_1'] : 1;
-      const lie2 = typeof answers['check_lie_2'] === 'number' ? answers['check_lie_2'] : 1;
-      validityProfile = { attentionPassed: attentionVal, lieScore: (lie1 + lie2) / 2, statusLabel: attentionVal ? 'Valid' : 'FAIL' };
-    } else if (sectionId === 'motivation') {
-       motivationProfile = calculateMotivationProfile(answers);
-       const totalSum = Object.values(answers).reduce((a, b) => (typeof a === 'number' ? a : 0) + (typeof b === 'number' ? b : 0), 0);
-       rawScore = Object.keys(answers).length > 0 ? (totalSum as number / Object.keys(answers).length) : 1;
-       maxPossibleScore = 6;
-    } else if (sectionId === 'sjt') {
-       Object.values(answers).forEach(val => { if (typeof val === 'number') rawScore += val; maxPossibleScore += 2; });
-    } else if (sectionId === 'work_sample') {
-       textAnswer = answers[sectionData.questions[0].id] as string;
-    } else {
-      sectionData.questions.forEach(q => { if (typeof answers[q.id] === 'number') rawScore += answers[q.id] as number; maxPossibleScore += 1; });
-    }
-    const percentage = maxPossibleScore > 0 ? (rawScore / maxPossibleScore) * 100 : 0;
-    
-    setResults(prev => [...prev.filter(r => r.sectionId !== sectionId), { 
-      sectionId: sectionId as any, title: sectionData.title, rawScore, maxScore: maxPossibleScore, percentage, answers, hexacoProfile, motivationProfile, validityProfile, textAnswer 
-    }]);
-    setCompletedSections(prev => [...prev, sectionId]);
-    localStorage.removeItem(`sh_answers_${sectionId}`);
-    setActiveSectionId(null);
-  };
-
-  const handleAutofillAll = () => {
-    const allResults: TestResult[] = [];
-    const allCompleted: string[] = [];
-
-    testSections.forEach(section => {
-      const answers: UserAnswers = {};
-      section.questions.forEach(q => {
-        if (q.type === 'likert') {
-          answers[q.id] = Math.floor(Math.random() * (section.scaleMax || 5)) + 1;
-          if (q.id === 'check_attention') answers[q.id] = 1;
-        } else if (q.type === 'single-choice' || q.type === 'scenario') {
-          const randomIndex = Math.floor(Math.random() * q.options!.length);
-          answers[q.id] = q.options![randomIndex].value;
-        } else if (q.type === 'text') {
-          answers[q.id] = "Кандидат проявил высокий уровень компетенций. В стрессовой ситуации предложил эффективный алгоритм действий. Ответ структурирован и логичен.";
-        }
-      });
-
-      let hexacoProfile, motivationProfile, validityProfile, textAnswer;
-      let rawScore = 0;
-      let maxPossibleScore = 0;
-
-      if (section.id === 'conscientiousness') {
-        hexacoProfile = calculateHexacoScores(answers);
-        rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 3;
-        maxPossibleScore = 5;
-        validityProfile = { attentionPassed: true, lieScore: 2.0, statusLabel: 'Valid' };
-      } else if (section.id === 'motivation') {
-        motivationProfile = calculateMotivationProfile(answers);
-        rawScore = 4;
-        maxPossibleScore = 6;
-      } else if (section.id === 'sjt') {
-        Object.values(answers).forEach(val => { if (typeof val === 'number') rawScore += val; maxPossibleScore += 2; });
-      } else if (section.id === 'work_sample') {
-        textAnswer = answers[section.questions[0].id] as string;
-      } else {
-        section.questions.forEach(q => { if (typeof answers[q.id] === 'number') rawScore += answers[q.id] as number; maxPossibleScore += 1; });
-      }
-
-      allResults.push({
-        sectionId: section.id,
-        title: section.title,
-        rawScore,
-        maxScore: maxPossibleScore,
-        percentage: maxPossibleScore > 0 ? (rawScore / maxPossibleScore) * 100 : 0,
-        answers,
-        hexacoProfile,
-        motivationProfile,
-        validityProfile,
-        textAnswer
-      });
-      allCompleted.push(section.id);
-    });
-
-    setResults(allResults);
-    setCompletedSections(allCompleted);
-    setActiveSectionId(null);
-  };
-
-  const startTest = (id: string) => setActiveSectionId(id);
-
-  const handleRegistrationSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const info = {
-      name: formData.get('name') as string,
-      age: formData.get('age') as string,
-      department: formData.get('department') as string,
-      role: formData.get('role') as string,
-    };
-    setCandidateInfo(info);
+      if (data.company) setCurrentCompany(data.company);
   };
 
   const handleLoginSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const code = (formData.get('code') as string || '').toUpperCase();
-    
-    if (COMPANY_CODES[code]) {
-      setCurrentCompany(COMPANY_CODES[code]);
-      setIsAuthenticated(true);
-      if (!customJobId) {
-        setShowHrBuilder(true);
-        setIsHrMode(true);
-      }
-    } else {
-      alert("Неверный код доступа компании. Обратитесь к администратору.");
+    const code = (new FormData(e.currentTarget).get('code') as string || '').toUpperCase();
+    if (COMPANY_CODES[code]) { 
+      setCurrentCompany(COMPANY_CODES[code]); 
+      setIsAuthenticated(true); 
+      setShowHrBuilder(true); 
+      setIsHrMode(true); 
+      localStorage.setItem('sh_hr_authenticated', 'true');
+    } else { 
+      alert("Неверный код доступа."); 
     }
   };
 
-  if (isLoadingConfig) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold animate-pulse">Загрузка портала...</div>;
-
-  // --- FLOATING CONTROL BAR ---
   const ControlBar = () => (
-    <div className="fixed top-4 right-4 z-[9999] flex items-center gap-2">
-      {currentCompany && (
-        <div className="bg-blue-600/20 border border-blue-500/30 px-3 py-1 rounded-lg text-[10px] font-black text-blue-400 uppercase tracking-widest hidden sm:block">
-          Company: {currentCompany}
-        </div>
-      )}
-      {isHrMode && candidateInfo && (
-        <button onClick={handleAutofillAll} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xl shadow-indigo-900/40">
-          <Wand2 size={14}/> МАГИЯ (АВТО)
+    <div className="fixed top-6 right-6 z-[9999] flex items-center gap-3">
+      {isHrMode && (
+        <button onClick={() => {
+          testSections.forEach(s => {
+            const ans: UserAnswers = {};
+            s.questions.forEach(q => {
+              if (q.type === 'likert') ans[q.id] = 4;
+              else if (q.type === 'single-choice' || q.type === 'scenario') ans[q.id] = q.options![0].value;
+              else ans[q.id] = "Тестовый ответ системы.";
+            });
+            handleSectionComplete(s.id, ans);
+          });
+        }} title="Магия (Demo)" className="bg-indigo-600/20 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2">
+          <Wand2 size={14}/> МАГИЯ
         </button>
       )}
-      {(candidateInfo || isAuthenticated || customJobId || showHrBuilder) && (
-        <button onClick={() => resetApp(true)} className="flex items-center gap-2 bg-slate-900/80 backdrop-blur-md border border-slate-700 text-slate-300 hover:text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg hover:bg-red-900/40 hover:border-red-500/50">
-          <LogOut size={14}/> ВЫЙТИ
-        </button>
-      )}
+      <button onClick={() => resetApp(true)} title="Выйти" className="bg-slate-900 border border-slate-800 text-slate-400 hover:text-white px-3 py-3 rounded-xl transition-all shadow-xl">
+        <LogOut size={18}/>
+      </button>
     </div>
   );
 
-  if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} company={currentCompany} onExit={() => setShowHrBuilder(false)} onTestPreview={handleTestPreview} />;
+  const handleSectionComplete = (sectionId: string, answers: UserAnswers) => {
+    const sectionData = testSections.find(t => t.id === sectionId);
+    if (!sectionData) return;
+    
+    let rawScore = 0, maxPossibleScore = 0, hexacoProfile, motivationProfile, validityProfile, textAnswer;
+    if (sectionId === 'conscientiousness') {
+      const scores: Record<string, { sum: number; count: number }> = { 'H': { sum: 0, count: 0 }, 'E': { sum: 0, count: 0 }, 'X': { sum: 0, count: 0 }, 'A': { sum: 0, count: 0 }, 'C': { sum: 0, count: 0 }, 'O': { sum: 0, count: 0 } };
+      Object.entries(answers).forEach(([qId, value]) => {
+        const keyData = HEXACO_KEY[parseInt(qId)];
+        if (keyData && typeof value === 'number') {
+          const finalValue = keyData.reverse ? (6 - value) : value;
+          scores[keyData.code].sum += finalValue; scores[keyData.code].count += 1;
+        }
+      });
+      hexacoProfile = Object.entries(scores).map(([code, data]) => ({ factor: FACTOR_NAMES[code], code, rawScore: data.sum, questionCount: data.count, average: parseFloat((data.count > 0 ? data.sum / data.count : 1).toFixed(2)), percentage: (((data.sum / data.count) - 1) / 4) * 100 }));
+      rawScore = hexacoProfile.find(f => f.code === 'C')?.average || 1; maxPossibleScore = 5;
+    } else if (sectionId === 'motivation') {
+       motivationProfile = (function(ans){
+         const vt: any = {};
+         Object.entries(ans).forEach(([qId, score]) => { const vc = MOTIVATION_MAPPING[parseInt(qId)]; if (vc && typeof score === 'number') { if (!vt[vc]) vt[vc] = { sum: 0, count: 0 }; vt[vc].sum += score; vt[vc].count += 1; } });
+         const vs: any[] = Object.keys(MOTIVATION_NAMES).map(c => ({ code: c, name: MOTIVATION_NAMES[c], score: parseFloat(((vt[c]?.sum || 0) / (vt[c]?.count || 1)).toFixed(1)) }));
+         const ds: DriverScore[] = Object.entries(MOTIVATION_DRIVERS_LOGIC).map(([k, l]) => {
+           const relevantValues = vs.filter(v => l.values.includes(v.code));
+           const score = relevantValues.length > 0 ? (relevantValues.reduce((a,v)=>a+v.score,0) / relevantValues.length) : 0;
+           return { name: l.name, score: parseFloat(score.toFixed(1)), rank: 0, recommendation: l.hint };
+         });
+         ds.sort((a,b)=>b.score-a.score).forEach((d,i)=>d.rank=i+1);
+         return { values: vs, blocks: [], drivers: ds, topDrivers: ds.slice(0, 3) };
+       })(answers);
+       rawScore = 3.5; maxPossibleScore = 6;
+    } else if (sectionId === 'sjt') {
+       Object.values(answers).forEach(v => { if (typeof v === 'number') rawScore += v; maxPossibleScore += 2; });
+    } else if (sectionId === 'work_sample') {
+       textAnswer = answers[sectionData.questions[0].id] as string;
+       rawScore = textAnswer ? 1 : 0; maxPossibleScore = 1;
+    } else {
+      sectionData.questions.forEach(q => { if (typeof answers[q.id] === 'number') rawScore += answers[q.id] as number; maxPossibleScore += 1; });
+    }
 
-  if (!customJobId && !isAuthenticated && !candidateInfo) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="max-w-xl w-full">
-           <div className="mb-12 space-y-4">
-              <div className="inline-flex p-4 rounded-3xl bg-blue-600/10 border border-blue-500/20 mb-4">
-                <ShieldCheck className="text-blue-500" size={64} />
-              </div>
-              <h1 className="text-5xl font-extrabold text-white tracking-tight">SmartHire Assessment</h1>
-              <p className="text-slate-400 text-lg">Платформа для профессиональной оценки персонала.</p>
-           </div>
-           <div className="bg-slate-900/50 p-8 rounded-2xl border border-slate-800">
-             <form onSubmit={handleLoginSubmit} className="space-y-6">
-               <div className="text-left">
-                  <label className="block text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] mb-2 ml-1">Код доступа компании</label>
-                  <input name="code" type="password" required placeholder="НАПР. YANDEX_HR" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-widest font-mono" />
-               </div>
-               <button type="submit" className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-bold py-5 rounded-xl shadow-2xl shadow-blue-900/40 transition-all group">
-                 <Settings size={24} className="group-hover:rotate-45 transition-transform" /> ВХОД В HR-КАБИНЕТ
-               </button>
-             </form>
-           </div>
-           <p className="mt-8 text-slate-600 text-sm">© 2025 SmartHire Solutions.</p>
-        </div>
-      </div>
-    );
-  }
+    setResults(prev => [...prev.filter(r => r.sectionId !== sectionId), { 
+      sectionId: sectionId as any, title: sectionData.title, rawScore, maxScore: maxPossibleScore, percentage: maxPossibleScore > 0 ? (rawScore / maxPossibleScore) * 100 : 0, answers, hexacoProfile, motivationProfile, validityProfile, textAnswer 
+    }]);
+    setCompletedSections(prev => [...prev, sectionId]);
+    setActiveSectionId(null);
+  };
 
-  if (customJobId && !isAuthenticated) {
+  if (isLoadingConfig) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold animate-pulse">Загрузка SmartHire...</div>;
+
+  if (!isAuthenticated && !showHrLogin) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <ControlBar />
-        <div className="max-w-sm w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 text-center relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500"></div>
-          <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><LogIn className="text-blue-400" size={32} /></div>
-          <h1 className="text-2xl font-bold text-white mb-2">Портал Кандидата</h1>
-          <p className="text-slate-400 text-sm mb-8">Для компании: <span className="text-blue-400 font-bold">{currentCompany || "..."}</span></p>
-          <form onSubmit={handleLoginSubmit}>
-            <div className="relative mb-6">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-              <input name="code" type="password" required placeholder="КОД КОМПАНИИ" className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-12 pr-4 py-4 text-white focus:border-blue-500 outline-none text-center tracking-[0.3em] font-black" />
+      <div className="min-h-screen bg-slate-950 relative overflow-hidden flex flex-col items-center justify-center px-6">
+        <div className="absolute top-1/4 -left-20 w-96 h-96 bg-blue-600/10 rounded-full blur-[120px]" />
+        <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-indigo-600/10 rounded-full blur-[120px]" />
+        
+        <div className="relative z-10 max-w-4xl w-full text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-full text-blue-400 text-xs font-bold uppercase tracking-widest mb-8 animate-in fade-in slide-in-from-top-4 duration-700">
+            <Shield size={14} /> AI-Powered Candidate Assessment
+          </div>
+          <h1 className="text-6xl md:text-8xl font-black text-white mb-6 tracking-tighter">
+            Smart<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-indigo-400">Hire</span>
+          </h1>
+          <p className="text-xl text-slate-400 max-w-2xl mx-auto mb-12 leading-relaxed">
+            Профессиональная экосистема для глубокой оценки потенциала кандидатов. Интеллект, психотип и драйверы в одном отчете.
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-lg mx-auto">
+            {/* HR-Панель ПЕРВАЯ */}
+            <button 
+              onClick={() => setShowHrLogin(true)}
+              className="p-6 bg-slate-900 border border-slate-800 rounded-3xl text-left group hover:border-indigo-500/50 transition-all shadow-2xl"
+            >
+              <div className="p-3 bg-indigo-500/10 rounded-2xl w-fit mb-4 group-hover:bg-indigo-500/20 transition-all text-indigo-400"><Lock size={24}/></div>
+              <h3 className="text-white font-bold mb-2 flex items-center justify-between">HR-Панель <ChevronRight size={18}/></h3>
+              <p className="text-slate-500 text-sm">Управление вакансиями и просмотр детальной аналитики по кандидатам.</p>
+            </button>
+
+            {/* Кандидаты ВТОРОЙ */}
+            <div className="p-6 bg-slate-900/50 border border-slate-800 rounded-3xl text-left group hover:border-blue-500/30 transition-all cursor-default">
+              <div className="p-3 bg-blue-500/10 rounded-2xl w-fit mb-4 group-hover:bg-blue-500/20 transition-all text-blue-400"><UserPlus size={24}/></div>
+              <h3 className="text-white font-bold mb-2">Кандидатам</h3>
+              <p className="text-slate-500 text-sm">Перейдите по индивидуальной ссылке от рекрутера для начала теста.</p>
             </div>
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Войти в систему</button>
-          </form>
+          </div>
+        </div>
+
+        <div className="mt-20 flex gap-12 text-slate-600 opacity-50 grayscale hover:grayscale-0 transition-all duration-700">
+           <div className="flex items-center gap-2 font-black tracking-tighter text-xl"><BarChart3 size={24}/> DATA DRIVEN</div>
+           <div className="flex items-center gap-2 font-black tracking-tighter text-xl"><Brain size={24}/> NEURAL AI</div>
+           <div className="flex items-center gap-2 font-black tracking-tighter text-xl"><ShieldCheck size={24}/> TRUSTED</div>
         </div>
       </div>
     );
   }
+
+  if (showHrLogin && !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
+        <div className="max-w-sm w-full">
+           <button onClick={() => setShowHrLogin(false)} className="text-slate-500 hover:text-white mb-8 flex items-center gap-2 text-sm font-bold uppercase transition-colors">
+             <ArrowLeft size={16}/> Назад
+           </button>
+           <div className="bg-slate-900 p-10 rounded-[2.5rem] border border-slate-800 shadow-2xl">
+              <h2 className="text-2xl font-black text-white mb-2">Админ-панель</h2>
+              <p className="text-slate-500 text-sm mb-8">Введите персональный код доступа для входа в кабинет управления.</p>
+              <form onSubmit={handleLoginSubmit} className="space-y-6">
+                <input name="code" type="password" required autoFocus placeholder="КОД HR" className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-5 py-5 text-white text-center tracking-[0.3em] outline-none focus:border-indigo-500 transition-all" />
+                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-900/20 transition-all active:scale-95">ВОЙТИ В СИСТЕМУ</button>
+              </form>
+           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (showHrBuilder) return <HrBuilder scriptUrl={SCRIPT_URL} company={currentCompany} onExit={() => resetApp(true)} onTestPreview={injectCustomSections} />;
 
   if (isAuthenticated && !candidateInfo) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <ControlBar />
-        <div className="max-w-md w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 p-8 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
-          <div className="text-center mb-8">
-            <div className="inline-block p-3 rounded-full bg-blue-500/10 mb-4 ring-1 ring-blue-500/30"><UserPlus className="text-blue-400" size={32} /></div>
-            <h1 className="text-2xl font-bold text-white mb-2">Анкета Кандидата</h1>
-            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{currentCompany}</p>
+        <div className="max-w-md w-full bg-slate-900 rounded-[2.5rem] border border-slate-800 p-10 shadow-2xl">
+          <div className="mb-8">
+            <h1 className="text-3xl font-black text-white mb-2">Добро пожаловать</h1>
+            <p className="text-slate-500">Пожалуйста, заполните анкету для начала оценки.</p>
           </div>
-          <form onSubmit={handleRegistrationSubmit} className="space-y-4">
-            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-            <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Возраст</label><input name="age" type="number" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Отдел</label><input name="department" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
-              <div><label className="block text-slate-400 text-xs font-bold mb-1 ml-1 uppercase">Должность</label><input name="role" required className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none" /></div>
+          <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); setCandidateInfo({ name: fd.get('name') as string, age: fd.get('age') as string, department: fd.get('department') as string, role: fd.get('role') as string }); }} className="space-y-5">
+            <div><label className="text-slate-500 text-[10px] font-black uppercase mb-2 block">Ваше ФИО</label><input name="name" required className="w-full bg-slate-950 border border-slate-800 rounded-xl px-5 py-4 text-white outline-none focus:border-blue-500 transition-all" /></div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="col-span-1"><label className="text-slate-500 text-[10px] font-black uppercase mb-2 block">Возраст</label><input name="age" type="number" required className="w-full bg-slate-950 border border-slate-800 rounded-xl px-5 py-4 text-white outline-none focus:border-blue-500 transition-all" /></div>
+              <div className="col-span-2"><label className="text-slate-500 text-[10px] font-black uppercase mb-2 block">Отдел</label><input name="department" required className="w-full bg-slate-950 border border-slate-800 rounded-xl px-5 py-4 text-white outline-none focus:border-blue-500 transition-all" /></div>
             </div>
-            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4 transition-all">НАЧАТЬ ТЕСТ</button>
+            <div><label className="text-slate-500 text-[10px] font-black uppercase mb-2 block">Желаемая роль</label><input name="role" required className="w-full bg-slate-950 border border-slate-800 rounded-xl px-5 py-4 text-white outline-none focus:border-blue-500 transition-all" /></div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-900/30 mt-4 transition-all active:scale-95 flex items-center justify-center gap-2">НАЧАТЬ ТЕСТИРОВАНИЕ <ChevronRight size={20}/></button>
           </form>
         </div>
       </div>
@@ -446,44 +307,42 @@ export default function App() {
   }
 
   if (activeSectionId) {
-    const section = testSections.find(t => t.id === activeSectionId);
-    if (!section) return null;
-    return <div className="min-h-screen bg-slate-950 py-6 px-4 sm:px-6"><TestRunner section={section} onComplete={handleSectionComplete} onExit={() => setActiveSectionId(null)} /></div>;
+    const s = testSections.find(t => t.id === activeSectionId);
+    return <div className="min-h-screen bg-slate-950 py-6 px-4"><TestRunner section={s!} onComplete={handleSectionComplete} onExit={() => setActiveSectionId(null)} /></div>;
   }
 
   if (completedSections.length === testSections.length) {
-    return <div className="min-h-screen bg-slate-950 py-8 px-4 sm:px-6"><ResultsView results={results} candidateInfo={candidateInfo} onReset={() => resetApp(true)} scriptUrl={SCRIPT_URL} /></div>;
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <ResultsView results={results} candidateInfo={candidateInfo} onReset={() => resetApp(true)} scriptUrl={SCRIPT_URL} isHrView={isHrMode} jobId={customJobId || ""} onRetake={handleRetake} />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
       <ControlBar />
-      <header className="max-w-7xl mx-auto py-12 px-4 sm:px-6 text-center relative">
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-4 tracking-tight">Портал Оценки Кандидатов</h1>
-        <p className="text-lg text-slate-400 max-w-2xl mx-auto">Добро пожаловать, <span className="text-white font-bold">{candidateInfo?.name}</span>.</p>
-        <button onClick={() => setShowHrBuilder(true)} className="mt-8 inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-6 py-3 rounded-2xl text-xs font-bold text-slate-400 hover:text-white hover:border-blue-500/50 transition-all">
-          <Settings size={16} /> ПЕРЕЙТИ В HR-КАБИНЕТ
-        </button>
+      <header className="max-w-7xl mx-auto pt-24 pb-12 px-6 text-center">
+        <h1 className="text-5xl font-black text-white mb-3 tracking-tight">Центр Оценки</h1>
+        <p className="text-slate-500 font-medium">Кандидат: <span className="text-blue-400">{candidateInfo?.name}</span>. Завершите все доступные блоки тестов.</p>
+        {completedSections.length > 0 && (
+          <button onClick={handleRetake} className="mt-6 flex items-center gap-2 mx-auto text-slate-600 hover:text-red-400 transition-colors text-xs font-black uppercase tracking-[0.2em]">
+            <RotateCcw size={14}/> СБРОСИТЬ И ПЕРЕПРОЙТИ
+          </button>
+        )}
       </header>
-      
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {testSections.map((section) => {
-            const isCompleted = completedSections.includes(section.id);
-            return (
-              <div key={section.id} onClick={() => !isCompleted && startTest(section.id)} className={`relative group rounded-2xl p-8 border backdrop-blur-sm transition-all duration-300 flex flex-col h-full ${isCompleted ? 'bg-slate-900/40 border-green-500/30 cursor-default' : 'bg-slate-900/60 border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/80 cursor-pointer hover:-translate-y-1'}`}>
-                <div className="absolute top-6 right-6">{isCompleted ? <CheckCircle2 className="text-green-400" size={20} /> : <Circle className="text-slate-600" size={20} />}</div>
-                <div className="mb-6 p-4 rounded-xl inline-block w-fit bg-slate-800 text-slate-300 transition-colors group-hover:bg-slate-700">{ICONS[section.id] || <Layers size={28}/>}</div>
-                <h3 className="text-xl font-bold mb-3 text-slate-100">{section.title}</h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-8 flex-grow">{section.description}</p>
-                <div className="mt-auto pt-6 border-t border-slate-800 flex items-center justify-between">
-                  {!isCompleted && <span className="text-blue-500 font-bold text-sm uppercase tracking-wider">Начать тест</span>}
-                  {isCompleted && <span className="text-green-500 text-sm font-bold flex items-center gap-2"><CheckCircle2 size={16}/> ЗАВЕРШЕНО</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      <main className="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-6 pb-20">
+        {testSections.map(s => {
+          const comp = completedSections.includes(s.id);
+          return (
+            <div key={s.id} onClick={() => !comp && setActiveSectionId(s.id)} className={`p-10 rounded-[2.5rem] border transition-all cursor-pointer ${comp ? 'bg-slate-900/40 border-green-500/10 opacity-50 grayscale' : 'bg-slate-900 border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/40 shadow-2xl hover:shadow-blue-900/10'}`}>
+              <div className={`mb-6 p-4 rounded-2xl w-fit ${comp ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-400'}`}>{ICONS[s.id] || <Layers />}</div>
+              <h3 className="text-2xl font-black mb-3">{s.title}</h3>
+              <p className="text-slate-500 text-sm mb-8 leading-relaxed">{s.description}</p>
+              <div className="text-xs font-black uppercase tracking-widest">{comp ? <span className="text-green-500 flex items-center gap-2">✓ ПРОЙДЕНО</span> : <span className="text-blue-500 flex items-center gap-2">НАЧАТЬ ТЕСТ <ChevronRight size={14}/></span>}</div>
+            </div>
+          );
+        })}
       </main>
     </div>
   );
