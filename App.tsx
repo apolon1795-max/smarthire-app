@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { TEST_DATA, HEXACO_KEY, FACTOR_NAMES, MOTIVATION_MAPPING, MOTIVATION_NAMES, MOTIVATION_DRIVERS_LOGIC } from './data/testData.ts';
 import TestRunner from './components/TestRunner.tsx';
 import ResultsView from './components/ResultsView.tsx';
 import HrBuilder from './components/HrBuilder.tsx';
 import { UserAnswers, TestResult, DriverScore, CandidateInfo, CustomTestConfig } from './types.ts';
-import { Brain, FileCheck, Target, Layers, Lock, Briefcase, PenTool, LogOut, ChevronRight, Shield, ArrowLeft } from 'lucide-react';
+import { Brain, FileCheck, Target, Layers, Lock, Briefcase, Pen, LogOut, Shield, ArrowLeft } from 'lucide-react';
 import { SCRIPT_URL } from './geminiService.ts';
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -13,7 +12,7 @@ const ICONS: Record<string, React.ReactNode> = {
   conscientiousness: <FileCheck size={28} />,
   motivation: <Target size={28} />,
   sjt: <Briefcase size={28} />,
-  work_sample: <PenTool size={28} />
+  work_sample: <Pen size={28} />
 };
 
 const COMPANY_CODES: Record<string, string> = {
