@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { TEST_DATA, HEXACO_KEY, FACTOR_NAMES, MOTIVATION_MAPPING, MOTIVATION_NAMES, MOTIVATION_DRIVERS_LOGIC } from './data/testData';
-import TestRunner from './components/TestRunner';
-import ResultsView from './components/ResultsView';
-import HrBuilder from './components/HrBuilder';
-import { UserAnswers, TestResult, DriverScore, CandidateInfo, CustomTestConfig } from './types';
+import { TEST_DATA, HEXACO_KEY, FACTOR_NAMES, MOTIVATION_MAPPING, MOTIVATION_NAMES, MOTIVATION_DRIVERS_LOGIC } from './data/testData.ts';
+import TestRunner from './components/TestRunner.tsx';
+import ResultsView from './components/ResultsView.tsx';
+import HrBuilder from './components/HrBuilder.tsx';
+import { UserAnswers, TestResult, DriverScore, CandidateInfo, CustomTestConfig } from './types.ts';
 import { Brain, FileCheck, Target, Layers, Lock, Briefcase, PenTool, LogOut, ChevronRight, Shield, ArrowLeft } from 'lucide-react';
-import { SCRIPT_URL } from './geminiService';
+import { SCRIPT_URL } from './geminiService.ts';
 
 const ICONS: Record<string, React.ReactNode> = {
   intelligence: <Brain size={28} />,
