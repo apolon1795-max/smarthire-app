@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Question, TestSection, UserAnswers } from '../types.ts';
+import React, { useState, useRef, useEffect } from 'react';
+import { Question, TestSection, UserAnswers } from '../types';
 import { ArrowRight, CheckCircle, Circle, ArrowLeft, AlignLeft, Briefcase } from 'lucide-react';
 
 interface TestRunnerProps {
@@ -8,146 +8,192 @@ interface TestRunnerProps {
   onExit: () => void;
 }
 
-export default function TestRunner({ section, onComplete, onExit }: TestRunnerProps) {
-  const [currentStep, setCurrentStep] = useState(0);
+const TestRunner: React.FC<TestRunnerProps> = ({ section, onComplete, onExit }) => {
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<UserAnswers>({});
+  const [selectedOptionIds, setSelectedOptionIds] = useState<{[key: string]: string}>({});
+  const questionRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
+  const maxScale = section.scaleMax || 5;
 
-  const handleAnswer = (qId: string, value: number | string) => {
-    setAnswers(prev => ({ ...prev, [qId]: value }));
+  // --- LOCAL STORAGE RECOVERY ---
+  useEffect(() => {
+    const savedAnswers = localStorage.getItem(`sh_answers_${section.id}`);
+    const savedOptionIds = localStorage.getItem(`sh_options_${section.id}`);
+    const savedIndex = localStorage.getItem(`sh_index_${section.id}`);
+
+    if (savedAnswers) setAnswers(JSON.parse(savedAnswers));
+    if (savedOptionIds) setSelectedOptionIds(JSON.parse(savedOptionIds));
+    if (savedIndex) setCurrentQuestionIndex(parseInt(savedIndex));
+  }, [section.id]);
+
+  // --- LOCAL STORAGE SYNC ---
+  useEffect(() => {
+    if (Object.keys(answers).length > 0) {
+      localStorage.setItem(`sh_answers_${section.id}`, JSON.stringify(answers));
+      localStorage.setItem(`sh_options_${section.id}`, JSON.stringify(selectedOptionIds));
+      localStorage.setItem(`sh_index_${section.id}`, currentQuestionIndex.toString());
+    }
+  }, [answers, selectedOptionIds, currentQuestionIndex, section.id]);
+
+  const handleAnswer = (questionId: string, value: number | string, optionId?: string) => {
+    setAnswers(prev => ({ ...prev, [questionId]: value }));
+    if (optionId) {
+      setSelectedOptionIds(prev => ({ ...prev, [questionId]: optionId }));
+    }
   };
 
-  const handleNext = () => {
-    if (section.displayMode === 'step') {
-      if (currentStep < section.questions.length - 1) {
-        setCurrentStep(currentStep + 1);
-      } else {
-        onComplete(section.id, answers);
-      }
+  const handleNextStep = () => {
+    if (currentQuestionIndex < section.questions.length - 1) {
+      setCurrentQuestionIndex(prev => prev + 1);
     } else {
+      clearSectionStorage();
       onComplete(section.id, answers);
     }
   };
 
-  const currentQuestion = section.questions[currentStep];
+  const handlePrevStep = () => {
+    if (currentQuestionIndex > 0) {
+      setCurrentQuestionIndex(prev => prev - 1);
+    }
+  };
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 p-6 md:p-12 overflow-y-auto">
-      <div className="max-w-4xl mx-auto">
-        <header className="flex justify-between items-center mb-12">
-          <button onClick={onExit} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors uppercase text-xs font-bold tracking-widest">
-            <ArrowLeft size={16} /> Назад
-          </button>
-          <div className="text-blue-500 font-black text-sm uppercase tracking-widest">
-            {section.title} {section.displayMode === 'step' && `• ${currentStep + 1} / ${section.questions.length}`}
+  const clearSectionStorage = () => {
+    localStorage.removeItem(`sh_answers_${section.id}`);
+    localStorage.removeItem(`sh_options_${section.id}`);
+    localStorage.removeItem(`sh_index_${section.id}`);
+  };
+
+  const handleCompleteScroll = () => {
+    const unanswered = section.questions.filter(q => answers[q.id] === undefined || answers[q.id] === '');
+    if (unanswered.length > 0) {
+      alert(`Пожалуйста, ответьте на все вопросы. Осталось: ${unanswered.length}`);
+      const firstId = unanswered[0].id;
+      questionRefs.current[firstId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    clearSectionStorage();
+    onComplete(section.id, answers);
+  };
+
+  const formatQuestionText = (text: string) => {
+    return text.split('\n').map((line, i) => {
+      const isHeader = line.startsWith('Вопрос:') || line.startsWith('Правило:') || line.startsWith('Текст:') || line.startsWith('Известно:');
+      const className = isHeader ? "text-blue-400 font-bold mb-1 mt-3 first:mt-0" : "text-slate-100 mb-2 leading-relaxed";
+      return <p key={i} className={className}>{line}</p>;
+    });
+  };
+
+  const renderHeader = (title: string, showProgress = false, progressStr = "") => (
+    <div className="flex justify-between items-center mb-6">
+       <button onClick={onExit} className="flex items-center text-slate-400 hover:text-white transition-colors text-sm font-medium">
+        <ArrowLeft size={18} className="mr-1" /> В меню
+      </button>
+      {showProgress ? (
+         <span className="text-xs font-bold text-slate-500 uppercase tracking-widest bg-slate-800 px-3 py-1 rounded-full">{progressStr}</span>
+      ) : (
+         <h2 className="text-lg font-bold text-slate-100 text-right">{title}</h2>
+      )}
+    </div>
+  );
+
+  if (section.displayMode === 'step') {
+    const currentQuestion = section.questions[currentQuestionIndex];
+    const progress = ((currentQuestionIndex) / section.questions.length) * 100;
+    const isCurrentAnswered = answers[currentQuestion.id] !== undefined && answers[currentQuestion.id] !== '';
+
+    return (
+      <div className="max-w-4xl mx-auto bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-hidden min-h-[600px] flex flex-col">
+        <div className="bg-slate-900 p-6 border-b border-slate-800">
+          {renderHeader(section.title, true, `Вопрос ${currentQuestionIndex + 1} / ${section.questions.length}`)}
+          <div className="w-full bg-slate-800 rounded-full h-1 mt-4">
+            <div className="bg-blue-500 h-1 rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }} />
           </div>
-        </header>
-
-        <div className="space-y-12">
-          {section.displayMode === 'step' ? (
-            <div className="bg-slate-900/50 p-10 rounded-[2.5rem] border border-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {currentQuestion.imageUrl && (
-                <div className="mb-8 rounded-2xl overflow-hidden border border-slate-800 bg-white p-2">
-                  <img src={currentQuestion.imageUrl} alt="Question" className="w-full h-auto max-h-[400px] object-contain" />
-                </div>
-              )}
-              
-              <p className="text-2xl font-bold mb-10 leading-relaxed text-white whitespace-pre-wrap">{currentQuestion.text}</p>
-              
-              <div className="space-y-4">
-                {currentQuestion.type === 'single-choice' && currentQuestion.options?.map(opt => (
-                  <button
-                    key={opt.id}
-                    onClick={() => handleAnswer(currentQuestion.id, opt.value)}
-                    className={`w-full text-left p-6 rounded-2xl border-2 transition-all flex items-center gap-4 ${
-                      answers[currentQuestion.id] === opt.value 
-                        ? 'bg-blue-600/10 border-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.1)]' 
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 ${answers[currentQuestion.id] === opt.value ? 'border-blue-500 bg-blue-500' : 'border-slate-700'}`}>
-                      {answers[currentQuestion.id] === opt.value && <div className="w-2 h-2 bg-white rounded-full" />}
-                    </div>
-                    <span className="font-bold">{opt.text}</span>
-                  </button>
-                ))}
-
-                {currentQuestion.type === 'likert' && (
-                  <div className="flex flex-col md:flex-row justify-between items-center gap-6 py-8">
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Не согласен</span>
-                    <div className="flex gap-2 md:gap-4">
-                      {[1, 2, 3, 4, 5, 6].slice(0, section.scaleMax || 5).map(v => (
-                        <button
-                          key={v}
-                          onClick={() => handleAnswer(currentQuestion.id, v)}
-                          className={`w-14 h-14 md:w-16 md:h-16 rounded-full border-2 flex items-center justify-center text-lg font-black transition-all ${
-                            answers[currentQuestion.id] === v
-                              ? 'bg-blue-600 border-blue-500 text-white scale-110 shadow-lg shadow-blue-500/20'
-                              : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'
-                          }`}
-                        >
-                          {v}
-                        </button>
-                      ))}
-                    </div>
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Согласен</span>
-                  </div>
-                )}
-
-                {currentQuestion.type === 'text' && (
-                  <textarea
-                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-6 text-white outline-none focus:border-blue-500 min-h-[300px] text-lg leading-relaxed resize-none"
-                    placeholder="Введите ваш ответ здесь..."
-                    onChange={(e) => handleAnswer(currentQuestion.id, e.target.value)}
-                    value={answers[currentQuestion.id] as string || ''}
-                  />
-                )}
-              </div>
-
-              <div className="mt-12 flex justify-end">
-                <button
-                  onClick={handleNext}
-                  disabled={answers[currentQuestion.id] === undefined && currentQuestion.type !== 'text'}
-                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white font-black px-10 py-5 rounded-2xl transition-all flex items-center gap-3"
-                >
-                  {currentStep === section.questions.length - 1 ? 'ЗАВЕРШИТЬ' : 'СЛЕДУЮЩИЙ'}
-                  <ArrowRight size={20} />
-                </button>
-              </div>
+        </div>
+        <div className="flex-1 p-8 overflow-y-auto">
+          {currentQuestion.type === 'scenario' ? (
+            <div className="mb-8 bg-slate-950 p-6 rounded-xl border border-slate-800 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-5"><Briefcase size={80} className="text-blue-400"/></div>
+              <h3 className="text-blue-400 font-bold uppercase tracking-wider text-xs mb-4 flex items-center gap-2">Ситуация</h3>
+              <div className="text-lg text-slate-200 leading-relaxed font-serif tracking-wide">{formatQuestionText(currentQuestion.text)}</div>
             </div>
           ) : (
-            <div className="space-y-6">
-              {section.questions.map((q, idx) => (
-                <div key={q.id} className="bg-slate-900/50 p-8 rounded-[2.5rem] border border-slate-800">
-                  <p className="text-lg font-bold mb-6 text-white">{idx + 1}. {q.text}</p>
-                  <div className="flex justify-between items-center gap-2 md:gap-4 overflow-x-auto pb-2">
-                    {[1, 2, 3, 4, 5, 6].slice(0, section.scaleMax || 5).map(v => (
-                      <button
-                        key={v}
-                        onClick={() => handleAnswer(q.id, v)}
-                        className={`w-10 h-10 md:w-12 md:h-12 shrink-0 rounded-full border-2 flex items-center justify-center text-xs font-black transition-all ${
-                          answers[q.id] === v
-                            ? 'bg-blue-600 border-blue-500 text-white'
-                            : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-600'
-                        }`}
-                      >
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <div className="pt-8">
-                <button
-                  onClick={handleNext}
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-6 rounded-[2rem] transition-all shadow-xl shadow-blue-500/10"
-                >
-                  ОТПРАВИТЬ ВСЕ ОТВЕТЫ
-                </button>
-              </div>
+            <div className="text-xl font-medium text-slate-50 mb-8">{formatQuestionText(currentQuestion.text)}</div>
+          )}
+          {currentQuestion.imageUrl && (
+            <div className="mb-8 p-2 bg-slate-800/50 border border-slate-700 rounded-xl flex justify-center">
+               <img src={currentQuestion.imageUrl} alt="Задание" className="max-h-[300px] object-contain rounded-lg"/>
+            </div>
+          )}
+          {(currentQuestion.type === 'single-choice' || currentQuestion.type === 'scenario') && (
+            <div className="space-y-3 grid grid-cols-1">
+              {currentQuestion.options?.map((option) => {
+                const isSelected = selectedOptionIds[currentQuestion.id] === option.id;
+                return (
+                  <button key={option.id} onClick={() => handleAnswer(currentQuestion.id, option.value, option.id)} className={`w-full text-left p-5 rounded-xl border transition-all duration-200 flex items-center group relative overflow-hidden ${isSelected ? 'border-blue-500 bg-blue-600/10 text-white shadow-lg shadow-blue-900/20' : 'border-slate-800 bg-slate-800/40 hover:bg-slate-800 hover:border-slate-600 text-slate-300'}`}>
+                    <div className={`mr-5 ${isSelected ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'}`}>{isSelected ? <CheckCircle size={24} className="fill-blue-500/20" /> : <Circle size={24} />}</div>
+                    <span className="text-base sm:text-lg font-medium">{option.text}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {currentQuestion.type === 'text' && (
+            <div className="space-y-4">
+              <textarea value={answers[currentQuestion.id] as string || ''} onChange={(e) => handleAnswer(currentQuestion.id, e.target.value)} placeholder="Напишите ваш ответ здесь..." className="w-full h-64 bg-slate-800/50 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-500 focus:border-blue-500 outline-none resize-none text-lg leading-relaxed" />
             </div>
           )}
         </div>
+        <div className="p-6 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center">
+          <button onClick={handlePrevStep} disabled={currentQuestionIndex === 0} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${currentQuestionIndex === 0 ? 'opacity-0 pointer-events-none' : 'text-slate-400 hover:text-white'}`}><ArrowLeft size={20} /> Назад</button>
+          <button onClick={handleNextStep} disabled={!isCurrentAnswered} className={`flex items-center gap-2 px-8 py-4 rounded-xl font-bold text-white transition-all shadow-lg ${isCurrentAnswered ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-900/30' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}>{currentQuestionIndex === section.questions.length - 1 ? 'Завершить раздел' : 'Следующий вопрос'}<ArrowRight size={20} /></button>
+        </div>
+      </div>
+    );
+  }
+
+  const answeredCount = Object.keys(answers).length;
+  const totalCount = section.questions.length;
+  const progressPercent = (answeredCount / totalCount) * 100;
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <div className="bg-slate-900/90 backdrop-blur-md rounded-2xl shadow-xl border border-slate-800 p-6 mb-8 sticky top-6 z-20">
+        {renderHeader(section.title)}
+        <div className="w-full bg-slate-800 rounded-full h-2 mt-4 overflow-hidden">
+          <div className="bg-gradient-to-r from-blue-600 to-cyan-400 h-2 rounded-full transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+        </div>
+      </div>
+      <div className="space-y-6 pb-24">
+        {section.questions.map((q, idx) => (
+          <div key={q.id} ref={(el) => { questionRefs.current[q.id] = el; }} className={`rounded-2xl p-6 transition-all duration-300 border ${answers[q.id] !== undefined ? 'bg-slate-900/40 border-slate-800 opacity-60' : 'bg-slate-900 border-slate-700'}`}>
+            <div className="flex gap-5">
+              <span className="text-slate-500 font-mono text-sm pt-1">{idx+1}</span>
+              <div className="w-full">
+                <p className="text-lg text-slate-200 font-medium mb-8 leading-snug">{q.text}</p>
+                {q.type === 'likert' && (
+                  <div className="py-2">
+                    <input type="range" min="1" max={maxScale} step="1" value={(answers[q.id] as number) || Math.ceil(maxScale/2)} onChange={(e) => handleAnswer(q.id, parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    <div className="flex justify-between mt-4 text-xs font-bold text-slate-500 uppercase">
+                      <span className="text-red-400">Не согласен</span>
+                      <span className="text-green-400">Согласен</span>
+                    </div>
+                    {answers[q.id] && (
+                       <div className="mt-4 text-center">
+                         <span className="inline-block px-3 py-1 bg-slate-800 text-blue-400 text-sm font-bold rounded-lg border border-slate-700">{answers[q.id]} / {maxScale}</span>
+                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="fixed bottom-0 left-0 right-0 p-6 bg-slate-950/80 backdrop-blur-lg border-t border-slate-800 flex justify-center z-30">
+        <button onClick={handleCompleteScroll} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-10 rounded-full shadow-lg">Завершить тестирование</button>
       </div>
     </div>
   );
-}
+};
+
+export default TestRunner;
