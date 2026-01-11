@@ -2,7 +2,7 @@ import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../t
 
 // ВАЖНО: Вставьте сюда свой актуальный URL веб-приложения Google Apps Script
 // Он должен заканчиваться на /exec
-export const SCRIPT_URL = 'https://script.google.com/macros/s/1lt16LNgMK_vU_CdXBR7AV3FZ0g8ZT6GFq84M5K0oGoQ/exec';
+export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
 
 /**
  * Вспомогательная функция для вызова AI через прокси (Google Apps Script -> YandexGPT/Gemini)
