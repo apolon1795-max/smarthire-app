@@ -39,6 +39,32 @@ function doPost(e) {
       return createJsonResponse({status: "success", jobId: newId});
     }
 
+    // НОВОЕ: Обновление эталона для вакансии (сохранение прогресса в конфиг)
+    if (data.action === "UPDATE_BENCHMARK") {
+      var sheet = ss.getSheetByName("Configs");
+      if (!sheet) return createJsonResponse({status: "error", message: "Configs sheet not found"});
+      
+      var range = sheet.getDataRange();
+      var values = range.getValues();
+      var found = false;
+      
+      for (var i = 1; i < values.length; i++) {
+        if (values[i][0] === data.jobId) {
+          var config = JSON.parse(values[i][2]);
+          config.benchmark = data.benchmark;
+          sheet.getRange(i + 1, 3).setValue(JSON.stringify(config));
+          found = true;
+          break;
+        }
+      }
+      
+      if (found) {
+        return createJsonResponse({status: "success"});
+      } else {
+        return createJsonResponse({status: "error", message: "Job not found: " + data.jobId});
+      }
+    }
+
     if (data.action === "SAVE_RESULT") {
       var dataSheet = ss.getSheetByName("Data") || ss.insertSheet("Data");
       if (dataSheet.getLastRow() === 0) {
@@ -46,10 +72,10 @@ function doPost(e) {
       }
       dataSheet.appendRow([
         new Date(), data.candidateName, data.candidateRole, data.statusText, "Passed",
-        data.iqScore, data.reliability, data.emotionality, 
+        data.iqScore, data.reliability, data.emotionality || 0, 
         data.topDrivers ? data.topDrivers.map(function(d){return d.name}).join(", ") : "",
         data.sjtScore || 0, data.workSampleAnswer || "", data.aiAnalysis || "",
-        data.hexacoJson || "{}", data.company, data.jobId || "", data.motivationJson || "{}"
+        data.hexacoJson || "[]", data.company, data.jobId || "", data.motivationJson || "{}"
       ]);
       return createJsonResponse({status: "success"});
     }
@@ -74,7 +100,14 @@ function doGet(e) {
       var company = e.parameter.company;
       for (var i = 1; i < data.length; i++) {
         if (!company || data[i][4] === company) {
-          jobs.push({ jobId: data[i][0], jobTitle: data[i][1], dateCreated: data[i][3], hasBenchmark: !!data[i][2] });
+          var config = JSON.parse(data[i][2]);
+          jobs.push({ 
+            jobId: data[i][0], 
+            jobTitle: data[i][1], 
+            dateCreated: data[i][3], 
+            hasBenchmark: !!(config && config.benchmark),
+            benchmark: config ? config.benchmark : null
+          });
         }
       }
       return createJsonResponse(jobs);
@@ -92,7 +125,7 @@ function doGet(e) {
             date: data[i][0], name: data[i][1], role: data[i][2], status: data[i][3],
             iq: data[i][5], reliability: data[i][6], drivers: data[i][8],
             sjtScore: data[i][9], workAnswer: data[i][10], aiReport: data[i][11],
-            hexacoJson: data[i][12], motivationJson: data[i][15]
+            hexacoJson: data[i][12], jobId: data[i][14], motivationJson: data[i][15]
           });
         }
       }
