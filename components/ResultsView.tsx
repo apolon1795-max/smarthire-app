@@ -1,9 +1,7 @@
-
 import React, { useEffect, useState } from 'react';
 import { TestResult, CandidateInfo } from '../types.ts';
-// Fix: Corrected import to use exported member 'generateCandidateProfile'
 import { generateCandidateProfile } from '../geminiService.ts';
-import { Loader2, ShieldCheck, CheckCircle2, LayoutDashboard, LogOut } from 'lucide-react';
+import { Loader2, ShieldCheck, CheckCircle2, LogOut } from 'lucide-react';
 
 interface ResultsViewProps {
   results: TestResult[];
@@ -13,7 +11,6 @@ interface ResultsViewProps {
   jobId?: string;
 }
 
-// Fix: Add default export and component implementation to resolve 'no default export' error
 export default function ResultsView({ results, candidateInfo, onReset, scriptUrl, jobId }: ResultsViewProps) {
   const [isGenerating, setIsGenerating] = useState(true);
   const [report, setReport] = useState<string>('');
@@ -24,7 +21,6 @@ export default function ResultsView({ results, candidateInfo, onReset, scriptUrl
         const aiReport = await generateCandidateProfile(results, candidateInfo);
         setReport(aiReport);
 
-        // Map results for backend
         const findScore = (id: string) => results.find(r => r.sectionId === id);
         const conscientiousness = findScore('conscientiousness');
         const motivation = findScore('motivation');
@@ -32,7 +28,6 @@ export default function ResultsView({ results, candidateInfo, onReset, scriptUrl
         const sjt = findScore('sjt');
         const work = findScore('work_sample');
 
-        // Save to Google Sheet
         await fetch(scriptUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
@@ -42,7 +37,7 @@ export default function ResultsView({ results, candidateInfo, onReset, scriptUrl
             candidateRole: candidateInfo?.role,
             statusText: 'Completed',
             iqScore: intelligence?.rawScore || 0,
-            reliability: 88, 
+            reliability: Math.round(conscientiousness?.percentage || 0), 
             emotionality: conscientiousness?.hexacoProfile?.find(f => f.code === 'E')?.percentage || 0,
             topDrivers: motivation?.motivationProfile?.topDrivers || [],
             sjtScore: sjt?.rawScore || 0,
