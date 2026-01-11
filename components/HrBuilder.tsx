@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { generateCustomQuestions, generateCandidateProfile } from '../services/geminiService';
 import { CustomTestConfig, JobListing, BenchmarkData } from '../types';
@@ -61,16 +60,13 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
       const configResp = await fetch(`${scriptUrl}?action=GET_JOB_CONFIG&jobId=${jobId}`);
       const configData = await configResp.json();
       const currentBenchmark = configData.benchmark || DEFAULT_BENCHMARK;
-      setBenchmark(currentBenchmark);
+      setBenchmark(currentBenchmark); // Устанавливаем стейт, который управляет слайдерами
 
       // Теперь получаем кандидатов
       const resp = await fetch(`${scriptUrl}?action=GET_CANDIDATES&jobId=${jobId}`);
       const data = await resp.json();
       
-      setJobCandidates(Array.isArray(data) ? data.map(c => ({ 
-        ...c, 
-        jobBenchmark: currentBenchmark 
-      })) : []);
+      setJobCandidates(Array.isArray(data) ? data : []);
     } catch (e) { 
       console.error(e); 
       setJobCandidates([]);
@@ -108,18 +104,20 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         { sectionId: 'intelligence', title: 'IQ', percentage: (activeReport.iq/12)*100, rawScore: activeReport.iq },
         { sectionId: 'conscientiousness', title: 'Надежность', percentage: activeReport.reliability, rawScore: activeReport.reliability },
         { sectionId: 'sjt', title: 'Кейс-тест', percentage: (activeReport.sjtScore/8)*100, rawScore: activeReport.sjtScore },
-        { sectionId: 'motivation', title: 'Драйверы', percentage: 100, motivationProfile: { topDrivers: activeReport.drivers?.split(',').map(d => ({name: d.trim()})) || [] } }
+        { sectionId: 'motivation', title: 'Драйверы', percentage: 100, motivationProfile: { topDrivers: activeReport.drivers?.split(',').map((d: string) => ({name: d.trim()})) || [] } }
       ] as any;
       
-      const newReport = await generateCandidateProfile(mockResults, { name: activeReport.name, role: activeReport.role } as any, activeReport.jobBenchmark);
+      // ИСПОЛЬЗУЕМ ТЕКУЩИЙ benchmark ИЗ СТЕЙТА
+      const newReport = await generateCandidateProfile(mockResults, { name: activeReport.name, role: activeReport.role } as any, benchmark);
       setActiveReport({ ...activeReport, aiReport: newReport });
     } catch (e) { alert("Ошибка анализа"); }
     finally { setIsReanalyzing(false); }
   };
 
+  // ОБНОВЛЕНО: Использует глобальный стейт benchmark вместо старого jobBenchmark кандидата
   const calculateFit = (report: any) => {
-    if (!report.jobBenchmark) return 0;
-    const b = report.jobBenchmark;
+    const b = benchmark; // Берем текущие настройки слайдеров
+    
     // Коэффициенты отклонения (чем ближе к 1, тем лучше)
     const iqScore = 1 - Math.abs(report.iq - b.iq) / 12;
     const relScore = 1 - Math.abs(report.reliability - b.reliability) / 100;
@@ -193,7 +191,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                  </div>
               </div>
 
-              {/* СЕТКА МЕТРИК (КАК БЫЛО) */}
+              {/* СЕТКА МЕТРИК */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-14">
                  <div className="bg-slate-950/50 p-8 rounded-[2rem] border border-slate-800 shadow-inner group">
                     <div className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-4 group-hover:text-blue-400 transition-colors">Интеллект (IQ)</div>
@@ -217,17 +215,17 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                  </div>
               </div>
 
-              {/* GAP ANALYSIS */}
-              {activeReport.jobBenchmark && (
+              {/* GAP ANALYSIS - ИСПОЛЬЗУЕТ ТЕКУЩИЙ benchmark ИЗ СТЕЙТА */}
+              {benchmark && (
                 <div className="mb-14 bg-indigo-600/5 border border-indigo-500/10 rounded-[2.5rem] p-10">
                    <h3 className="text-indigo-400 font-black text-sm uppercase tracking-widest mb-10 flex items-center gap-3">
                      <Zap size={20}/> Анализ разрывов с эталоном (Gap Analysis)
                    </h3>
                    <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
                       {[
-                        { label: 'Интеллект', current: activeReport.iq, target: activeReport.jobBenchmark.iq, max: 12 },
-                        { label: 'Надежность', current: activeReport.reliability, target: activeReport.jobBenchmark.reliability, max: 100 },
-                        { label: 'Кейс-тест', current: activeReport.sjtScore || 0, target: activeReport.jobBenchmark.sjt, max: 8 },
+                        { label: 'Интеллект', current: activeReport.iq, target: benchmark.iq, max: 12 },
+                        { label: 'Надежность', current: activeReport.reliability, target: benchmark.reliability, max: 100 },
+                        { label: 'Кейс-тест', current: activeReport.sjtScore || 0, target: benchmark.sjt, max: 8 },
                       ].map(m => {
                         const diff = m.current - m.target;
                         return (
@@ -281,7 +279,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         </div>
       )}
 
-      {/* DASHBOARD & OTHER VIEWS - С ИСПРАВЛЕННЫМ 'СООТВЕТСТВИЕ' */}
+      {/* DASHBOARD & OTHER VIEWS */}
       <div className="flex justify-between items-center mb-10 pb-6 border-b border-slate-800">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-blue-600/20 rounded-2xl border border-blue-500/30"><BarChart className="text-blue-400" size={32} /></div>
