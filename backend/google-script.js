@@ -1,147 +1,206 @@
 
-// ============================================================
-// БЭКЕНД: GOOGLE APPS SCRIPT (EXTENDED EDITION)
-// ============================================================
+var SHEET_ID = "ВСТАВЬТЕ_ВАШ_ID_ТАБЛИЦЫ"; 
+var YANDEX_API_KEY = "ВСТАВЬТЕ_ВАШ_YANDEX_API_KEY"; 
+var YANDEX_FOLDER_ID = "ВСТАВЬТЕ_ВАШ_YANDEX_FOLDER_ID"; 
 
-var SHEET_ID = "ВАШ_ID_ТАБЛИЦЫ"; 
-var YANDEX_API_KEY = "ВАШ_API_КЛЮЧ_ЯНДЕКСА"; 
-var YANDEX_FOLDER_ID = "ВАШ_FOLDER_ID_ЯНДЕКСА"; 
-
-function createJsonResponse(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
-}
-
-function getSpreadsheet() {
-  if (!SHEET_ID || SHEET_ID === "ВАШ_ID_ТАБЛИЦЫ") {
-    throw new Error("Критическая ошибка: SHEET_ID не настроен.");
-  }
-  try {
-    return SpreadsheetApp.openById(SHEET_ID);
-  } catch (e) {
-    throw new Error("Не удалось открыть таблицу: " + e.toString());
-  }
-}
-
-function doPost(e) {
-  var lock = LockService.getScriptLock();
-  lock.tryLock(15000); 
-  try {
-    var data = JSON.parse(e.postData.contents);
-    var ss = getSpreadsheet();
-
-    if (data.action === "SAVE_CONFIG") {
-      var sheet = ss.getSheetByName("Configs") || ss.insertSheet("Configs");
-      if (sheet.getLastRow() === 0) {
-        sheet.appendRow(["ID", "Title", "JSON", "Date", "Company"]);
-      }
-      var newId = "JOB-" + Math.floor(Math.random() * 900000 + 100000);
-      sheet.appendRow([newId, data.jobTitle, JSON.stringify(data.config), new Date(), data.company]);
-      return createJsonResponse({status: "success", jobId: newId});
-    }
-
-    // НОВОЕ: Обновление эталона для вакансии (сохранение прогресса в конфиг)
-    if (data.action === "UPDATE_BENCHMARK") {
-      var sheet = ss.getSheetByName("Configs");
-      if (!sheet) return createJsonResponse({status: "error", message: "Configs sheet not found"});
-      
-      var range = sheet.getDataRange();
-      var values = range.getValues();
-      var found = false;
-      
-      for (var i = 1; i < values.length; i++) {
-        if (values[i][0] === data.jobId) {
-          var config = JSON.parse(values[i][2]);
-          config.benchmark = data.benchmark;
-          sheet.getRange(i + 1, 3).setValue(JSON.stringify(config));
-          found = true;
-          break;
-        }
-      }
-      
-      if (found) {
-        return createJsonResponse({status: "success"});
-      } else {
-        return createJsonResponse({status: "error", message: "Job not found: " + data.jobId});
-      }
-    }
-
-    if (data.action === "SAVE_RESULT") {
-      var dataSheet = ss.getSheetByName("Data") || ss.insertSheet("Data");
-      if (dataSheet.getLastRow() === 0) {
-         dataSheet.appendRow(["Date", "Name", "Role", "Status", "Result", "IQ", "Reliability", "Emotionality", "Drivers", "SJT Score", "Work Answer", "AI Report", "Hexaco JSON", "Company", "JobID", "Motivation JSON"]);
-      }
-      dataSheet.appendRow([
-        new Date(), data.candidateName, data.candidateRole, data.statusText, "Passed",
-        data.iqScore, data.reliability, data.emotionality || 0, 
-        data.topDrivers ? data.topDrivers.map(function(d){return d.name}).join(", ") : "",
-        data.sjtScore || 0, data.workSampleAnswer || "", data.aiAnalysis || "",
-        data.hexacoJson || "[]", data.company, data.jobId || "", data.motivationJson || "{}"
-      ]);
-      return createJsonResponse({status: "success"});
-    }
-    return createJsonResponse({status: "error", message: "Unknown action"});
-  } catch (err) {
-    return createJsonResponse({status: "error", message: err.toString() });
-  } finally {
-    lock.releaseLock();
-  }
+function cleanHtmlForSheet(html) {
+  if (!html) return "";
+  var text = html
+    .replace(/<h3>/gi, '\n\n=== ')
+    .replace(/<\/h3>/gi, ' ===\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<p>/gi, '')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '') 
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"');
+  return text.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
 }
 
 function doGet(e) {
+  var lock = LockService.getScriptLock();
+  lock.tryLock(10000);
   try {
-    var ss = getSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var company = e.parameter.company; 
     var action = e.parameter.action;
-    
+
+    // GET_CANDIDATES - получение списка кандидатов (ФИЛЬТРАЦИЯ ПО КОМПАНИИ)
+    if (action === "GET_CANDIDATES") {
+      var sheet = ss.getSheetByName("Data");
+      if (!sheet) return createJsonResponse([]);
+      var data = sheet.getDataRange().getValues();
+      var results = [];
+      
+      for (var i = 1; i < data.length; i++) {
+        var rowCompany = data[i][13]; 
+        if (company && rowCompany !== company) continue;
+
+        results.push({
+          date: data[i][0],
+          name: data[i][1],
+          role: data[i][2],
+          status: data[i][3],
+          iq: data[i][5],
+          reliability: data[i][6],
+          emotionality: data[i][7],
+          drivers: data[i][8],
+          rawRowIndex: i + 1 
+        });
+      }
+      return createJsonResponse(results);
+    }
+
+    // GET_JOBS - список вакансий (ФИЛЬТРАЦИЯ ПО КОМПАНИИ)
     if (action === "GET_JOBS") {
       var sheet = ss.getSheetByName("Configs");
       if (!sheet) return createJsonResponse([]);
       var data = sheet.getDataRange().getValues();
       var jobs = [];
-      var company = e.parameter.company;
       for (var i = 1; i < data.length; i++) {
-        if (!company || data[i][4] === company) {
-          var config = JSON.parse(data[i][2]);
-          jobs.push({ 
-            jobId: data[i][0], 
-            jobTitle: data[i][1], 
-            dateCreated: data[i][3], 
-            hasBenchmark: !!(config && config.benchmark),
-            benchmark: config ? config.benchmark : null
+        try {
+          var jobId = data[i][0];
+          var jobTitle = data[i][1];
+          var configStr = data[i][2];
+          var dateCreated = data[i][3];
+          var rowCompany = data[i][4];
+          
+          if (company && rowCompany !== company) continue;
+          if (!configStr) continue;
+
+          var config = JSON.parse(configStr);
+          jobs.push({
+            jobId: jobId,
+            jobTitle: jobTitle,
+            company: rowCompany,
+            dateCreated: dateCreated,
+            hasBenchmark: !!(config && config.benchmark)
           });
+        } catch (err) {
+          // Игнорируем битые строки
+          console.error("Error parsing row " + i + ": " + err.toString());
         }
       }
       return createJsonResponse(jobs);
     }
 
-    if (action === "GET_CANDIDATES") {
-      var jobId = e.parameter.jobId;
-      var sheet = ss.getSheetByName("Data");
-      if (!sheet) return createJsonResponse([]);
+    // Загрузка конфига по jobId (для теста кандидата)
+    var jobIdReq = e.parameter.jobId;
+    if (jobIdReq) {
+      var sheet = ss.getSheetByName("Configs");
+      if (!sheet) return createJsonResponse({ status: "error", message: "Configs sheet not found" });
       var data = sheet.getDataRange().getValues();
-      var candidates = [];
       for (var i = 1; i < data.length; i++) {
-        if (data[i][14] == jobId) {
-          candidates.push({
-            date: data[i][0], name: data[i][1], role: data[i][2], status: data[i][3],
-            iq: data[i][5], reliability: data[i][6], drivers: data[i][8],
-            sjtScore: data[i][9], workAnswer: data[i][10], aiReport: data[i][11],
-            hexacoJson: data[i][12], jobId: data[i][14], motivationJson: data[i][15]
-          });
+        if (data[i][0] == jobIdReq) {
+          return ContentService.createTextOutput(data[i][2]).setMimeType(ContentService.MimeType.JSON);
         }
       }
-      return createJsonResponse(candidates);
+    }
+    
+    return createJsonResponse({ status: "error", message: "Action or JobId not found" });
+  } catch (err) {
+    return createJsonResponse({ status: "error", message: err.toString() });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function createJsonResponse(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+
+    if (data.action === "GENERATE_AI") {
+      var aiResponse = callYandexGPT(data.prompt, data.jsonMode);
+      if (aiResponse.error) return createJsonResponse({ status: "error", message: aiResponse.error });
+      return createJsonResponse({ status: "success", text: aiResponse.text });
     }
 
-    if (action === "GET_JOB_CONFIG") {
-      var jobId = e.parameter.jobId;
-      var sheet = ss.getSheetByName("Configs");
-      var data = sheet.getDataRange().getValues();
-      for (var i = 1; i < data.length; i++) {
-        if (data[i][0] == jobId) return createJsonResponse(JSON.parse(data[i][2]));
+    if (data.action === "SAVE_CONFIG") {
+      var configSheet = ss.getSheetByName("Configs");
+      if (!configSheet) {
+        configSheet = ss.insertSheet("Configs");
+        configSheet.appendRow(["Job ID", "Job Title", "JSON Config", "Date Created", "Company"]);
       }
+      var newJobId = "JOB-" + Math.floor(Math.random() * 1000000);
+      configSheet.appendRow([newJobId, data.jobTitle, JSON.stringify(data.config), new Date(), data.company || "Unknown"]);
+      return createJsonResponse({ status: "success", jobId: newJobId });
     }
-    return createJsonResponse({status: "error", message: "Not found"});
+
+    if (data.action === "SET_BENCHMARK") {
+      var sheet = ss.getSheetByName("Configs");
+      var configValues = sheet.getDataRange().getValues();
+      for (var i = 1; i < configValues.length; i++) {
+        if (configValues[i][0] == data.jobId) {
+          var config = JSON.parse(configValues[i][2]);
+          config.benchmark = data.benchmark;
+          sheet.getRange(i + 1, 3).setValue(JSON.stringify(config));
+          return createJsonResponse({ status: "success" });
+        }
+      }
+      return createJsonResponse({ status: "error", message: "Job not found" });
+    }
+    
+    // По умолчанию - сохранение результата кандидата
+    var dataSheet = ss.getSheetByName("Data");
+    if (!dataSheet) {
+      dataSheet = ss.insertSheet("Data");
+      dataSheet.appendRow(["Дата", "ФИО", "Вакансия", "Статус", "Анти-Фейк", "IQ Балл", "Надежность", "Эмоц. уст.", "Топ Мотиваторы", "SJT Балл", "Work Sample Ответ", "AI Анализ", "Hexaco JSON", "Company"]);
+    }
+    var rawAnalysis = data.aiAnalysis || "";
+    var cleanText = cleanHtmlForSheet(rawAnalysis).substring(0, 49000);
+    var companyName = data.company || "Unknown";
+
+    var row = [
+      new Date(), data.candidateName, data.candidateRole, data.statusText, data.antiFakeStatus || "N/A",
+      data.iqScore, data.reliability, data.emotionality, 
+      data.topDrivers ? data.topDrivers.map(function(d){ return d.name }).join(", ") : "",
+      data.sjtScore || 0, data.workSampleAnswer || "N/A", cleanText,
+      JSON.stringify({ iq: data.iqScore, hexaco: data.hexacoScoresMap, drivers: data.topDrivers ? data.topDrivers.map(function(d){return d.name}) : [] }),
+      companyName
+    ];
+    dataSheet.appendRow(row);
+    return createJsonResponse({ status: "success" });
   } catch (err) {
-    return createJsonResponse({status: "error", message: err.toString()});
-  }
+    return createJsonResponse({ status: "error", message: err.toString() });
+  } finally { lock.releaseLock(); }
+}
+
+function callYandexGPT(prompt, jsonMode) {
+  var url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
+  var effectivePrompt = prompt;
+  if (jsonMode) effectivePrompt += "\n\nВАЖНО: Ответ должен быть ТОЛЬКО валидным JSON кодом. Без markdown разметки. Без пояснений.";
+  var payload = {
+    "modelUri": "gpt://" + YANDEX_FOLDER_ID + "/yandexgpt/latest", 
+    "completionOptions": { "stream": false, "temperature": 0.5, "maxTokens": "4000" },
+    "messages": [
+      { "role": "system", "text": "Ты профессиональный HR ассистент." },
+      { "role": "user", "text": effectivePrompt }
+    ]
+  };
+  var options = {
+    method: 'post', contentType: 'application/json',
+    headers: { "Authorization": "Api-Key " + YANDEX_API_KEY, "x-folder-id": YANDEX_FOLDER_ID },
+    payload: JSON.stringify(payload), muteHttpExceptions: true
+  };
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var code = response.getResponseCode();
+    var text = response.getContentText();
+    var json = JSON.parse(text);
+    if (code === 200 && json.result && json.result.alternatives && json.result.alternatives.length > 0) {
+       var resultText = json.result.alternatives[0].message.text;
+       if (jsonMode) resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
+       return { text: resultText };
+    } else { return { error: "Yandex API Error (" + code + "): " + text }; }
+  } catch (e) { return { error: "Fetch Error: " + e.toString() }; }
 }
