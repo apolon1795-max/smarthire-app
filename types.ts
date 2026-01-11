@@ -26,15 +26,16 @@ export interface TestSection {
 }
 
 export interface BenchmarkData {
-  iq: number;
-  hexaco: Record<string, number>; // Factor code -> average (1-5)
-  drivers: string[]; // Names of top 3 drivers
+  iq: number; // 1-12
+  reliability: number; // 0-100
+  sjt: number; // 0-8
+  hexaco: Record<string, number>; // Factor code -> 0-100
 }
 
 export interface CustomTestConfig {
   jobId: string;
   jobTitle: string;
-  company: string; // Added for multi-tenancy
+  company: string;
   sjtQuestions: Question[];
   workSampleQuestion: Question;
   benchmark?: BenchmarkData; 
@@ -108,7 +109,8 @@ export interface CandidateInfo {
 export interface JobListing {
   jobId: string;
   jobTitle: string;
-  company: string; // Added for filtering
+  company: string; 
   dateCreated: string;
   hasBenchmark: boolean;
+  benchmark?: BenchmarkData;
 }
