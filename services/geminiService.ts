@@ -82,7 +82,13 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
   const systemPrompt = "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой, проницательный. Формат вывода: чистый текст с HTML тегами <h3> и <b>.";
 
   try {
-    return await invokeAIProxy(prompt, systemPrompt);
+    let rawText = await invokeAIProxy(prompt, systemPrompt);
+    // Очистка от случайных Markdown тегов, если модель их добавила
+    return rawText
+      .replace(/```html/gi, '')
+      .replace(/```/g, '')
+      .replace(/^html\s*/i, '') // Удаляет слово 'html' в самом начале, если есть
+      .trim();
   } catch (e: any) {
     return `<div style="color: red; padding: 20px; border: 1px solid red; border-radius: 10px;">
       <h3>Ошибка генерации</h3>
