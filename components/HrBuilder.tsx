@@ -167,11 +167,13 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         <div className="fixed inset-0 z-[10000] bg-slate-950/98 backdrop-blur-2xl p-4 sm:p-10 lg:p-16 overflow-y-auto custom-scrollbar">
            <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-[3rem] p-8 lg:p-14 shadow-3xl animate-in zoom-in-95 duration-500 relative">
               
-              <button onClick={() => setActiveReport(null)} className="absolute top-10 right-10 bg-slate-800 hover:bg-slate-700 p-4 rounded-full text-white transition-all active:scale-95 shadow-xl">
+              {/* Кнопка ЗАКРЫТЬ (Стрелка назад) - поднята выше и сдвинута */}
+              <button onClick={() => setActiveReport(null)} className="absolute top-6 right-6 z-10 bg-slate-800 hover:bg-slate-700 p-4 rounded-full text-white transition-all active:scale-95 shadow-xl">
                  <ArrowLeft size={24}/>
               </button>
 
-              <div className="flex flex-col md:flex-row justify-between items-start mb-14 gap-8">
+              {/* Заголовок отчета с отступом сверху (mt-12) для избежания наложения */}
+              <div className="flex flex-col md:flex-row justify-between items-start mb-14 gap-8 mt-12">
                  <div>
                    <div className="flex items-center gap-4 mb-3">
                      <h2 className="text-5xl font-black text-white tracking-tighter">{activeReport.name}</h2>
