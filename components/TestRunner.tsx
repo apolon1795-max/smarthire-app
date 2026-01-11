@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Question, TestSection, UserAnswers } from '../types.ts';
 import { ArrowRight, CheckCircle, Circle, ArrowLeft, AlignLeft, Briefcase } from 'lucide-react';
@@ -9,7 +8,6 @@ interface TestRunnerProps {
   onExit: () => void;
 }
 
-// Fix: Add default export and full component implementation to resolve 'no default export' error
 export default function TestRunner({ section, onComplete, onExit }: TestRunnerProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<UserAnswers>({});
