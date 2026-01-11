@@ -1,4 +1,4 @@
-import { TestSection } from '../types';
+import { TestSection } from '../types.ts';
 
 // Exact questions from the provided list
 const CONSCIENTIOUSNESS_QUESTIONS = [
