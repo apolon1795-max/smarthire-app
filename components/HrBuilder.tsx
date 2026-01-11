@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { generateCustomQuestions, generateCandidateProfile } from '../geminiService';
-import { CustomTestConfig, JobListing, BenchmarkData } from '../types';
+// Fix: Import newly created functions from geminiService
+import { generateCustomQuestions, generateCandidateProfile } from '../geminiService.ts';
+import { CustomTestConfig, JobListing, BenchmarkData } from '../types.ts';
 import { Loader2, Save, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Target, SlidersHorizontal, ShieldCheck, Activity, AlertTriangle, Briefcase } from 'lucide-react';
 
 interface HrBuilderProps {
@@ -83,6 +84,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
           <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-[2rem] p-10">
             <button onClick={() => setActiveReport(null)} className="mb-8 flex items-center gap-2 text-slate-400 hover:text-white"><ArrowLeft/> Назад</button>
             <h2 className="text-3xl font-black mb-2">{activeReport.name}</h2>
+            {/* Fix: replaced 'report' with 'activeReport' on line 86 to fix reference error */}
             <div className="bg-blue-600/20 px-4 py-2 rounded-xl text-blue-400 w-fit mb-8">Fit Score: {calculateFit(activeReport)}%</div>
             <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: activeReport.aiReport }} />
           </div>
