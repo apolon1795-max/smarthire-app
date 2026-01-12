@@ -48,40 +48,76 @@ const ICONS = {
   RED: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-rose-400"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>`
 };
 
+// Словари для расшифровки в промпте
+const HEXACO_RU: Record<string, string> = {
+  'H': 'Честность-Скромность',
+  'E': 'Эмоциональность',
+  'X': 'Экстраверсия',
+  'A': 'Доброжелательность',
+  'C': 'Добросовестность (Сознательность)',
+  'O': 'Открытость опыту'
+};
+
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo, benchmark?: BenchmarkData): Promise<string> => {
+  // Формируем детальное описание результатов для ИИ
   const resultsText = results.map(r => {
     let details = '';
-    if (r.sectionId === 'conscientiousness') details = ` (HEXACO: ${r.hexacoProfile?.map(h => `${h.code}=${h.average}`).join(', ')})`;
-    if (r.sectionId === 'motivation') details = ` (Драйверы: ${r.motivationProfile?.topDrivers.map(d => d.name).join(', ')})`;
-    if (r.sectionId === 'work_sample') details = ` (ОТВЕТ НА КЕЙС: "${r.textAnswer || "НЕТ ОТВЕТА"}")`;
-    return `- ${r.title}: ${r.percentage.toFixed(0)}%${details}`;
-  }).join('\n');
+    
+    // Детальная расшифровка HEXACO для ИИ
+    if (r.sectionId === 'conscientiousness' && r.hexacoProfile) {
+      const hexacoLines = r.hexacoProfile.map(h => 
+        `   * ${HEXACO_RU[h.code] || h.code}: ${h.average.toFixed(1)} из 5`
+      ).join('\n');
+      details = `\n   ПОДРОБНЫЙ ПРОФИЛЬ ЛИЧНОСТИ (HEXACO):\n${hexacoLines}`;
+    }
+    
+    // Детальная расшифровка Мотивации
+    else if (r.sectionId === 'motivation' && r.motivationProfile) {
+      const driverLines = r.motivationProfile.topDrivers.map((d, i) => 
+        `   * ${i+1}. ${d.name} (Ранг: ${d.score.toFixed(1)})`
+      ).join('\n');
+      details = `\n   КЛЮЧЕВЫЕ ДРАЙВЕРЫ:\n${driverLines}`;
+    }
+    
+    // Кейс
+    else if (r.sectionId === 'work_sample') {
+      details = `\n   ОТВЕТ НА ПРАКТИЧЕСКИЙ КЕЙС:\n   "${r.textAnswer || "Нет ответа"}"`;
+    }
+
+    return `### РАЗДЕЛ ТЕСТА: ${r.title}\n- Общий результат: ${r.percentage.toFixed(0)}%${details}`;
+  }).join('\n\n');
 
   let benchmarkText = "";
   if (benchmark) {
     benchmarkText = `
-    ЭТАЛОН (BENCHMARK):
-    - IQ: ${benchmark.iq}/12
-    - Reliability: ${benchmark.reliability}%
-    - SJT: ${benchmark.sjt}/8
-    - HEXACO: ${JSON.stringify(benchmark.hexaco)}
-    Сравни результаты с эталоном.
+    ЭТАЛОН ПРОФИЛЯ (BENCHMARK) ДЛЯ СРАВНЕНИЯ:
+    - Интеллект (IQ): ${benchmark.iq}/12
+    - Надежность (Reliability): ${benchmark.reliability}%
+    - Кейс-тест (SJT): ${benchmark.sjt}/8
+    - HEXACO (Целевые значения): ${JSON.stringify(benchmark.hexaco)}
+    Используй эти цифры, чтобы оценить, подходит ли кандидат.
     `;
   }
 
   const prompt = `
-    Кандидат: ${candidateInfo?.name}, Роль: ${candidateInfo?.role}.
+    КАНДИДАТ: ${candidateInfo?.name}
+    РОЛЬ: ${candidateInfo?.role}
+    
     ${benchmarkText}
-    РЕЗУЛЬТАТЫ ТЕСТОВ:
+    
+    =========================================
+    РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ:
+    =========================================
     ${resultsText}
     
     ЗАДАЧА:
     1. Напиши краткий аналитический отчет (Сильные стороны, Риски, Вывод).
-    2. В САМОМ КОНЦЕ ответа (на новой строке) вынеси финальный вердикт в формате:
+    2. Обязательно проанализируй личностный профиль (HEXACO), данные предоставлены выше. Не пиши, что данных нет.
+    3. В САМОМ КОНЦЕ ответа (на новой строке) вынеси финальный вердикт в формате:
     VERDICT: [GREEN | YELLOW | RED] :: [Короткая фраза-вывод для заголовка]
     
     Критерии цвета:
-    - GREEN: Высокое соответствие, нет критичных рисков.
+    - GREEN: Высокое соответствие эталону, нет критичных рисков.
     - YELLOW: Есть сомнения, среднее соответствие или нужен контроль.
     - RED: Низкие баллы, критичные риски (ложь, низкая надежность), полное несоответствие.
 
@@ -89,7 +125,7 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     Используй HTML теги <h3> для заголовков и <b> для жирного шрифта. Не используй markdown.
   `;
 
-  const systemPrompt = "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой. В конце обязательно добавляй строку VERDICT: ...";
+  const systemPrompt = "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой. Внимательно читай все переданные данные. В конце обязательно добавляй строку VERDICT: ...";
 
   try {
     let rawText = await invokeAIProxy(prompt, systemPrompt);
@@ -194,7 +230,6 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
     let text = await invokeAIProxy(prompt, systemPrompt);
     
     // Очистка от маркдауна, если модель все же его добавила
-    // Используем new RegExp для избежания проблем с парсингом бэктиков в литералах
     text = text.replace(new RegExp('```json', 'g'), '').replace(new RegExp('```', 'g'), '').trim();
     
     // Попытка найти JSON, если есть лишний текст
@@ -205,7 +240,6 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
     
     const data = JSON.parse(text);
 
-    // Принудительное выставление типов для UI
     const sjtQuestions = data.sjtQuestions.map((q: any) => ({
       ...q,
       type: 'scenario'
