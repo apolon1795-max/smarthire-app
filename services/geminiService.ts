@@ -41,6 +41,13 @@ async function invokeAIProxy(prompt: string, systemPrompt?: string): Promise<str
   }
 }
 
+// SVG Иконки для отчета
+const ICONS = {
+  GREEN: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+  YELLOW: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-amber-400"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  RED: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-rose-400"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>`
+};
+
 export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo, benchmark?: BenchmarkData): Promise<string> => {
   const resultsText = results.map(r => {
     let details = '';
@@ -69,26 +76,79 @@ export const generateCandidateProfile = async (results: TestResult[], candidateI
     ${resultsText}
     
     ЗАДАЧА:
-    Напиши краткий аналитический отчет. 
-    1. Сильные стороны.
-    2. Риски и зоны развития.
-    3. Оценка ответа на кейс (если есть).
-    4. Общий вывод.
+    1. Напиши краткий аналитический отчет (Сильные стороны, Риски, Вывод).
+    2. В САМОМ КОНЦЕ ответа (на новой строке) вынеси финальный вердикт в формате:
+    VERDICT: [GREEN | YELLOW | RED] :: [Короткая фраза-вывод для заголовка]
     
-    ФОРМАТ:
+    Критерии цвета:
+    - GREEN: Высокое соответствие, нет критичных рисков.
+    - YELLOW: Есть сомнения, среднее соответствие или нужен контроль.
+    - RED: Низкие баллы, критичные риски (ложь, низкая надежность), полное несоответствие.
+
+    ФОРМАТ ТЕЛА ОТЧЕТА:
     Используй HTML теги <h3> для заголовков и <b> для жирного шрифта. Не используй markdown.
   `;
 
-  const systemPrompt = "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой, проницательный. Формат вывода: чистый текст с HTML тегами <h3> и <b>.";
+  const systemPrompt = "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой. В конце обязательно добавляй строку VERDICT: ...";
 
   try {
     let rawText = await invokeAIProxy(prompt, systemPrompt);
-    // Очистка от случайных Markdown тегов, если модель их добавила
-    return rawText
+    
+    // Очистка от случайных Markdown тегов
+    let cleanText = rawText
       .replace(/```html/gi, '')
       .replace(/```/g, '')
-      .replace(/^html\s*/i, '') // Удаляет слово 'html' в самом начале, если есть
+      .replace(/^html\s*/i, '')
       .trim();
+
+    // Парсинг Вердикта
+    const verdictRegex = /VERDICT:\s*(GREEN|YELLOW|RED)\s*::\s*(.*)/i;
+    const match = cleanText.match(verdictRegex);
+    
+    let finalHtml = cleanText;
+    
+    if (match) {
+      const status = match[1].toUpperCase() as keyof typeof ICONS;
+      const summary = match[2].trim();
+      
+      // Удаляем строку вердикта из текста, чтобы она не дублировалась
+      finalHtml = cleanText.replace(match[0], '').trim();
+
+      // Стили для карточек
+      const styles = {
+        GREEN: "bg-emerald-500/10 border-emerald-500/50 text-emerald-100",
+        YELLOW: "bg-amber-500/10 border-amber-500/50 text-amber-100",
+        RED: "bg-rose-500/10 border-rose-500/50 text-rose-100"
+      };
+
+      const titles = {
+        GREEN: "РЕКОМЕНДОВАН К НАЙМУ",
+        YELLOW: "РЕКОМЕНДОВАН С ОГОВОРКАМИ",
+        RED: "НЕ РЕКОМЕНДОВАН"
+      };
+
+      // Генерируем красивый блок
+      const verdictBlock = `
+        <div class="mb-10 p-6 rounded-2xl border-l-4 ${styles[status]} flex items-start gap-5 shadow-lg">
+          <div class="mt-1 shrink-0 p-3 bg-slate-950/30 rounded-full border border-white/5">
+            ${ICONS[status]}
+          </div>
+          <div>
+            <div class="text-xs font-black tracking-widest uppercase opacity-70 mb-1">Финальное решение ИИ</div>
+            <h3 class="text-2xl font-black m-0 p-0 leading-none mb-3 tracking-tight">${titles[status]}</h3>
+            <p class="text-base font-medium opacity-90 m-0 leading-relaxed text-slate-300">
+              ${summary}
+            </p>
+          </div>
+        </div>
+      `;
+
+      // Вставляем блок в самое начало отчета
+      finalHtml = verdictBlock + finalHtml;
+    }
+
+    return finalHtml;
+
   } catch (e: any) {
     return `<div style="color: red; padding: 20px; border: 1px solid red; border-radius: 10px;">
       <h3>Ошибка генерации</h3>
