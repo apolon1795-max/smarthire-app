@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { generateCustomQuestions, generateCandidateProfile } from '../services/geminiService';
-import { CustomTestConfig, JobListing, BenchmarkData } from '../types';
-import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings, UserCheck, MessageSquare, Info, Target, Zap, RefreshCw, SlidersHorizontal, User, Brain, ShieldCheck } from 'lucide-react';
+import { CustomTestConfig, JobListing, BenchmarkData, Question } from '../types';
+import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings, UserCheck, MessageSquare, Info, Target, Zap, RefreshCw, SlidersHorizontal, User, Brain, ShieldCheck, Edit3, Trash2, Briefcase, PenTool } from 'lucide-react';
 
 interface HrBuilderProps {
   scriptUrl: string;
@@ -93,6 +93,33 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     } catch (e) { alert("Ошибка сохранения"); }
     finally { setIsSaving(false); }
   };
+
+  // --- EDITOR HANDLERS ---
+  const updateSjtQuestionText = (idx: number, text: string) => {
+    if (!generatedConfig) return;
+    const newQuestions = [...generatedConfig.sjtQuestions];
+    newQuestions[idx] = { ...newQuestions[idx], text };
+    setGeneratedConfig({ ...generatedConfig, sjtQuestions: newQuestions });
+  };
+
+  const updateSjtOption = (qIdx: number, oIdx: number, field: 'text' | 'value', value: string | number) => {
+    if (!generatedConfig) return;
+    const newQuestions = [...generatedConfig.sjtQuestions];
+    const newOptions = [...(newQuestions[qIdx].options || [])];
+    // @ts-ignore
+    newOptions[oIdx] = { ...newOptions[oIdx], [field]: value };
+    newQuestions[qIdx] = { ...newQuestions[qIdx], options: newOptions };
+    setGeneratedConfig({ ...generatedConfig, sjtQuestions: newQuestions });
+  };
+
+  const updateWorkSampleText = (text: string) => {
+    if (!generatedConfig) return;
+    setGeneratedConfig({ 
+      ...generatedConfig, 
+      workSampleQuestion: { ...generatedConfig.workSampleQuestion, text } 
+    });
+  };
+  // -----------------------
 
   const reanalyzeWithBenchmark = async () => {
     if (!activeReport) return;
@@ -480,14 +507,70 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                     <div className="py-24 text-center text-slate-700 font-black uppercase tracking-[0.3em] animate-pulse border-2 border-dashed border-slate-800 rounded-[2.5rem]">Ожидание ввода данных...</div>
                   ) : (
                     <div className="space-y-10 animate-in fade-in duration-500">
-                      <div className="space-y-4">
-                        <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Сгенерированные ситуационные кейсы:</div>
+                      
+                      {/* SJT EDITOR */}
+                      <div className="space-y-8">
+                        <div className="flex items-center justify-between">
+                           <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2"><Briefcase size={12}/> Ситуационные кейсы (SJT)</div>
+                        </div>
+                        
                         {generatedConfig.sjtQuestions.map((q, i) => (
-                          <div key={i} className="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-sm text-slate-400 italic flex gap-4">
-                            <span className="text-blue-500 font-black">0{i+1}</span> {q.text}
+                          <div key={i} className="bg-slate-950 p-6 rounded-[2rem] border border-slate-800 group hover:border-blue-500/20 transition-all">
+                             {/* Question Text Editor */}
+                             <div className="mb-6">
+                                <label className="text-[9px] text-slate-600 font-black uppercase mb-2 block">Ситуация #{i+1}</label>
+                                <textarea 
+                                  value={q.text} 
+                                  onChange={(e) => updateSjtQuestionText(i, e.target.value)}
+                                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none resize-none h-24 leading-relaxed font-medium"
+                                />
+                             </div>
+
+                             {/* Options Editor */}
+                             <div className="space-y-3">
+                                {q.options?.map((opt, optIdx) => (
+                                  <div key={optIdx} className="flex gap-3 items-center">
+                                     <div className="grow">
+                                        <input 
+                                          value={opt.text}
+                                          onChange={(e) => updateSjtOption(i, optIdx, 'text', e.target.value)}
+                                          className="w-full bg-slate-900/50 border border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-300 focus:border-blue-500 outline-none"
+                                          placeholder="Вариант ответа..."
+                                        />
+                                     </div>
+                                     <div className="shrink-0 w-24">
+                                        <div className="relative">
+                                          <input 
+                                            type="number"
+                                            min="0" max="2"
+                                            value={opt.value}
+                                            onChange={(e) => updateSjtOption(i, optIdx, 'value', parseInt(e.target.value))}
+                                            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-3 pr-8 py-3 text-xs text-center text-blue-400 font-black outline-none focus:border-blue-500"
+                                          />
+                                          <span className="absolute right-3 top-3 text-[10px] text-slate-600 font-bold">PTS</span>
+                                        </div>
+                                     </div>
+                                  </div>
+                                ))}
+                             </div>
                           </div>
                         ))}
                       </div>
+
+                      {/* WORK SAMPLE EDITOR */}
+                      <div className="pt-8 border-t border-slate-800">
+                         <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2 mb-6"><PenTool size={12}/> Практическое задание (Work Sample)</div>
+                         <div className="bg-slate-950 p-6 rounded-[2rem] border border-slate-800">
+                            <label className="text-[9px] text-slate-600 font-black uppercase mb-2 block">Текст задания для кандидата</label>
+                            <textarea 
+                               value={generatedConfig.workSampleQuestion.text} 
+                               onChange={(e) => updateWorkSampleText(e.target.value)}
+                               className="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none resize-none h-40 leading-relaxed font-medium"
+                               placeholder="Опишите интересную практическую задачу..."
+                            />
+                         </div>
+                      </div>
+
                       <div className="mt-12 pt-8">
                         {!savedLink ? (
                           <button onClick={handleSave} disabled={isSaving} className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-6 rounded-[2rem] flex items-center justify-center gap-3 transition-all shadow-2xl shadow-green-900/20 active:scale-95">
