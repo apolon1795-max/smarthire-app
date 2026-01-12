@@ -2,7 +2,7 @@ import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../t
 
 // ВАЖНО: Вставьте сюда свой актуальный URL веб-приложения Google Apps Script
 // Он должен заканчиваться на /exec
-export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec';
+export const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEsHd6tfjTlNqBHERiJ_dUQgk9YOBntn2aD94eEUzy-MjN2FPPgTwkDzTSCy-_9p7k/exec'';
 
 /**
  * Вспомогательная функция для вызова AI через прокси (Google Apps Script -> YandexGPT/Gemini)
@@ -198,13 +198,21 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
   const prompt = `
     Создай тест для вакансии "${jobRole}".
     Контекст и проблемы: "${challenges}".
+
+    ТРЕБОВАНИЯ К ПРАКТИЧЕСКОМУ ЗАДАНИЮ (Work Sample):
+    Оно должно быть СЛОЖНЫМ, ОБЪЕМНЫМ и СИТУАТИВНЫМ.
+    ЗАПРЕЩЕНО создавать простые вопросы типа "Что такое Х?" или "Опишите рецепт/алгоритм".
+    Создай "Business Case" или "Real-world Problem Scenario":
+    1. Опиши конкретную сложную ситуацию (конфликт, нехватка ресурсов, авария, сложный клиент).
+    2. Добавь специфические вводные данные и ограничения.
+    3. Попроси кандидата предложить пошаговое стратегическое решение, а не просто теоретический ответ.
     
     Мне нужен JSON объект с такой структурой:
     {
       "sjtQuestions": [
         {
           "id": "sjt_1",
-          "text": "Описание ситуации...",
+          "text": "Описание ситуации (SJT)...",
           "type": "scenario",
           "options": [
              {"id": "o1", "text": "Вариант действия 1", "value": 0},
@@ -216,7 +224,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
       ],
       "workSampleQuestion": {
         "id": "work_1",
-        "text": "Текст практического задания...",
+        "text": "Текст сложного практического кейса...",
         "type": "text"
       }
     }
@@ -224,12 +232,13 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
     Верни ТОЛЬКО валидный JSON. Без "json" и без лишних слов.
   `;
 
-  const systemPrompt = "Ты HR-методолог и программист. Ты генерируешь структуру тестов строго в формате JSON. Ты не пишешь ничего кроме JSON.";
+  const systemPrompt = "Ты Senior HR-методолог. Ты создаешь сложные кейс-тесты для проверки реальных навыков (hard & soft skills). Ты не пишешь ничего кроме JSON.";
 
   try {
     let text = await invokeAIProxy(prompt, systemPrompt);
     
     // Очистка от маркдауна, если модель все же его добавила
+    // Используем new RegExp для избежания проблем с парсингом бэктиков в литералах
     text = text.replace(new RegExp('```json', 'g'), '').replace(new RegExp('```', 'g'), '').trim();
     
     // Попытка найти JSON, если есть лишний текст
@@ -240,6 +249,7 @@ export const generateCustomQuestions = async (jobRole: string, challenges: strin
     
     const data = JSON.parse(text);
 
+    // Принудительное выставление типов для UI
     const sjtQuestions = data.sjtQuestions.map((q: any) => ({
       ...q,
       type: 'scenario'
