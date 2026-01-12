@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { generateCustomQuestions, generateCandidateProfile } from '../services/geminiService';
 import { CustomTestConfig, JobListing, BenchmarkData } from '../types';
-import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings, UserCheck, MessageSquare, Info, Target, Zap, RefreshCw, SlidersHorizontal, User } from 'lucide-react';
+import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings, UserCheck, MessageSquare, Info, Target, Zap, RefreshCw, SlidersHorizontal, User, Brain, ShieldCheck } from 'lucide-react';
 
 interface HrBuilderProps {
   scriptUrl: string;
@@ -56,13 +56,11 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     setView('manage');
     setIsLoadingJobs(true);
     try {
-      // Сначала получаем конфиг вакансии, чтобы вытащить бенчмарк
       const configResp = await fetch(`${scriptUrl}?action=GET_JOB_CONFIG&jobId=${jobId}`);
       const configData = await configResp.json();
       const currentBenchmark = configData.benchmark || DEFAULT_BENCHMARK;
-      setBenchmark(currentBenchmark); // Устанавливаем стейт, который управляет слайдерами
+      setBenchmark(currentBenchmark);
 
-      // Теперь получаем кандидатов
       const resp = await fetch(`${scriptUrl}?action=GET_CANDIDATES&jobId=${jobId}`);
       const data = await resp.json();
       
@@ -107,23 +105,19 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
         { sectionId: 'motivation', title: 'Драйверы', percentage: 100, motivationProfile: { topDrivers: activeReport.drivers?.split(',').map((d: string) => ({name: d.trim()})) || [] } }
       ] as any;
       
-      // ИСПОЛЬЗУЕМ ТЕКУЩИЙ benchmark ИЗ СТЕЙТА
       const newReport = await generateCandidateProfile(mockResults, { name: activeReport.name, role: activeReport.role } as any, benchmark);
       setActiveReport({ ...activeReport, aiReport: newReport });
     } catch (e) { alert("Ошибка анализа"); }
     finally { setIsReanalyzing(false); }
   };
 
-  // ОБНОВЛЕНО: Использует глобальный стейт benchmark вместо старого jobBenchmark кандидата
   const calculateFit = (report: any) => {
-    const b = benchmark; // Берем текущие настройки слайдеров
+    const b = benchmark;
     
-    // Коэффициенты отклонения (чем ближе к 1, тем лучше)
     const iqScore = 1 - Math.abs(report.iq - b.iq) / 12;
     const relScore = 1 - Math.abs(report.reliability - b.reliability) / 100;
     const sjtScore = 1 - Math.abs((report.sjtScore || 0) - b.sjt) / 8;
     
-    // Среднее взвешенное
     const total = Math.round(((iqScore + relScore + sjtScore) / 3) * 100);
     return Math.max(0, Math.min(100, total));
   };
@@ -132,6 +126,19 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
     navigator.clipboard.writeText(link);
     setLastCopiedId(id);
     setTimeout(() => setLastCopiedId(null), 2000);
+  };
+
+  const getIqLabel = (score: number) => {
+    if (score >= 10) return { label: "Высокий потенциал", color: "text-purple-400" };
+    if (score >= 8) return { label: "Выше среднего", color: "text-green-400" };
+    if (score >= 5) return { label: "Средний уровень", color: "text-blue-400" };
+    return { label: "Базовый уровень", color: "text-slate-400" };
+  };
+
+  const getRelLabel = (score: number) => {
+    if (score >= 75) return { label: "Высокая надежность", color: "text-green-400" };
+    if (score >= 50) return { label: "Средняя надежность", color: "text-blue-400" };
+    return { label: "Требует контроля", color: "text-orange-400" };
   };
 
   const BenchmarkEditor = ({ data, onChange }: { data: BenchmarkData, onChange: (d: BenchmarkData) => void }) => (
@@ -162,18 +169,17 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
 
   return (
     <div className="max-w-7xl mx-auto bg-slate-950 min-h-screen p-6 text-slate-100">
-      {/* ОТЧЕТ (МОДАЛКА) - ПОЛНАЯ ВЕРСИЯ */}
+      {/* ОТЧЕТ (МОДАЛКА) */}
       {activeReport && (
         <div className="fixed inset-0 z-[10000] bg-slate-950/98 backdrop-blur-2xl p-4 sm:p-10 lg:p-16 overflow-y-auto custom-scrollbar">
            <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-[3rem] p-8 lg:p-14 shadow-3xl animate-in zoom-in-95 duration-500 relative">
               
-              {/* Кнопка ЗАКРЫТЬ (Стрелка назад) - поднята выше и сдвинута */}
               <button onClick={() => setActiveReport(null)} className="absolute top-6 right-6 z-10 bg-slate-800 hover:bg-slate-700 p-4 rounded-full text-white transition-all active:scale-95 shadow-xl">
                  <ArrowLeft size={24}/>
               </button>
 
-              {/* Заголовок отчета с отступом сверху (mt-12) для избежания наложения */}
-              <div className="flex flex-col md:flex-row justify-between items-start mb-14 gap-8 mt-12">
+              {/* Увеличен отступ сверху до mt-20 */}
+              <div className="flex flex-col md:flex-row justify-between items-start mb-14 gap-8 mt-20">
                  <div>
                    <div className="flex items-center gap-4 mb-3">
                      <h2 className="text-5xl font-black text-white tracking-tighter">{activeReport.name}</h2>
@@ -217,7 +223,55 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                  </div>
               </div>
 
-              {/* GAP ANALYSIS - ИСПОЛЬЗУЕТ ТЕКУЩИЙ benchmark ИЗ СТЕЙТА */}
+              {/* НОВЫЙ БЛОК: РАСШИФРОВКА МЕТРИК */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-14">
+                 <div className="bg-slate-950/80 border border-slate-800 p-8 rounded-[2rem] relative overflow-hidden group hover:border-blue-500/30 transition-all">
+                    <div className="absolute top-[-20px] right-[-20px] p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Brain size={120} /></div>
+                    <h4 className="text-slate-500 font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Info size={12}/> Когнитивный Ресурс
+                    </h4>
+                    <div className="mb-4">
+                      <span className={`text-xl font-black ${getIqLabel(activeReport.iq).color}`}>
+                        {getIqLabel(activeReport.iq).label}
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-xs leading-relaxed font-bold">
+                      Отражает скорость обучения и способность решать новые задачи. Критично для ролей с высокой неопределенностью.
+                    </p>
+                 </div>
+
+                 <div className="bg-slate-950/80 border border-slate-800 p-8 rounded-[2rem] relative overflow-hidden group hover:border-green-500/30 transition-all">
+                    <div className="absolute top-[-20px] right-[-20px] p-8 opacity-5 group-hover:opacity-10 transition-opacity"><ShieldCheck size={120} /></div>
+                    <h4 className="text-slate-500 font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Info size={12}/> Фактор Надежности
+                    </h4>
+                    <div className="mb-4">
+                      <span className={`text-xl font-black ${getRelLabel(activeReport.reliability).color}`}>
+                        {getRelLabel(activeReport.reliability).label}
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-xs leading-relaxed font-bold">
+                      Прогноз добросовестности: готовность соблюдать правила, сроки и договоренности без микроменеджмента.
+                    </p>
+                 </div>
+
+                 <div className="bg-slate-950/80 border border-slate-800 p-8 rounded-[2rem] relative overflow-hidden group hover:border-purple-500/30 transition-all">
+                    <div className="absolute top-[-20px] right-[-20px] p-8 opacity-5 group-hover:opacity-10 transition-opacity"><MessageSquare size={120} /></div>
+                    <h4 className="text-slate-500 font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Info size={12}/> Социальный Интеллект
+                    </h4>
+                    <div className="mb-4">
+                       <span className="text-xl font-black text-white">
+                         {(activeReport.sjtScore || 0) >= 6 ? 'Стратег' : (activeReport.sjtScore || 0) >= 4 ? 'Практик' : 'Исполнитель'}
+                       </span>
+                    </div>
+                    <p className="text-slate-400 text-xs leading-relaxed font-bold">
+                      Умение выбирать адекватную стратегию поведения в сложных рабочих ситуациях и конфликтах.
+                    </p>
+                 </div>
+              </div>
+
+              {/* GAP ANALYSIS */}
               {benchmark && (
                 <div className="mb-14 bg-indigo-600/5 border border-indigo-500/10 rounded-[2.5rem] p-10">
                    <h3 className="text-indigo-400 font-black text-sm uppercase tracking-widest mb-10 flex items-center gap-3">
@@ -249,7 +303,7 @@ const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTes
                 </div>
               )}
 
-              {/* AI REPORT - УЛУЧШЕННЫЙ ПРОСМОТР */}
+              {/* AI REPORT */}
               <div className="space-y-12">
                  <section>
                     <h3 className="text-white font-black mb-8 flex items-center gap-3 text-sm uppercase tracking-[0.3em] border-l-4 border-blue-500 pl-6">
