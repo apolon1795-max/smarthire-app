@@ -1,604 +1,275 @@
-import React, { useState, useEffect } from 'react';
-import { generateCustomQuestions, generateCandidateProfile } from '../services/geminiService';
-import { CustomTestConfig, JobListing, BenchmarkData, Question } from '../types';
-import { Loader2, Save, Wand2, Copy, ArrowLeft, CheckCircle, List, Plus, BarChart, ChevronRight, LogOut, FileText, Eye, AlertCircle, TrendingUp, Settings, UserCheck, MessageSquare, Info, Target, Zap, RefreshCw, SlidersHorizontal, User, Brain, ShieldCheck, Edit3, Trash2, Briefcase, PenTool } from 'lucide-react';
+import { TestResult, CandidateInfo, CustomTestConfig, BenchmarkData } from "../types";
 
-interface HrBuilderProps {
-  scriptUrl: string;
-  company: string;
-  onExit: () => void;
-  onTestPreview: (config: CustomTestConfig) => void;
+// ВАЖНО: Вставьте сюда свой актуальный URL веб-приложения Google Apps Script
+// Он должен заканчиваться на /exec
+export const SCRIPT_URL = 'https://script.google.com/macros/s/ВАШ_УНИКАЛЬНЫЙ_ID/exec';
+
+/**
+ * Вспомогательная функция для вызова AI через прокси (Google Apps Script -> YandexGPT/Gemini)
+ */
+async function invokeAIProxy(prompt: string, systemPrompt?: string): Promise<string> {
+  // Проверка на дефолтный URL, чтобы предупредить пользователя
+  if (SCRIPT_URL.includes('ВАШ_УНИКАЛЬНЫЙ_ID')) {
+    console.warn("SCRIPT_URL не настроен в services/geminiService.ts");
+    return "ОШИБКА: Не настроен SCRIPT_URL в коде (services/geminiService.ts). Пожалуйста, вставьте ссылку на ваш Google Script.";
+  }
+
+  try {
+    const response = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8', // Важно для избежания CORS preflight в GAS
+      },
+      body: JSON.stringify({
+        action: 'PROXY_AI',
+        prompt: prompt,
+        systemPrompt: systemPrompt
+      })
+    });
+
+    const data = await response.json();
+    
+    if (data.status === 'success') {
+      return data.text;
+    } else {
+      throw new Error(data.message || "Ошибка API (статус не success)");
+    }
+  } catch (e: any) {
+    console.error("AI Proxy Error:", e);
+    // Возвращаем текст ошибки, чтобы он отобразился в UI
+    throw new Error("Ошибка соединения с AI: " + e.message);
+  }
 }
 
-const DEFAULT_BENCHMARK: BenchmarkData = {
-  iq: 7,
-  reliability: 50,
-  sjt: 4,
-  hexaco: { 'H': 60, 'E': 40, 'X': 60, 'A': 60, 'C': 70, 'O': 50 }
+// SVG Иконки для отчета
+const ICONS = {
+  GREEN: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-400"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+  YELLOW: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-amber-400"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  RED: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-rose-400"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>`
 };
 
-const baseUrl = window.location.origin + window.location.pathname;
+// Словари для расшифровки в промпте
+const HEXACO_RU: Record<string, string> = {
+  'H': 'Честность-Скромность',
+  'E': 'Эмоциональность',
+  'X': 'Экстраверсия',
+  'A': 'Доброжелательность',
+  'C': 'Добросовестность (Сознательность)',
+  'O': 'Открытость опыту'
+};
 
-const HrBuilder: React.FC<HrBuilderProps> = ({ scriptUrl, company, onExit, onTestPreview }) => {
-  const [view, setView] = useState<'dashboard' | 'create' | 'manage'>('dashboard');
-  const [jobs, setJobs] = useState<JobListing[]>([]);
-  const [jobCandidates, setJobCandidates] = useState<any[]>([]);
-  const [isLoadingJobs, setIsLoadingJobs] = useState(false);
-  const [activeReport, setActiveReport] = useState<any | null>(null);
-  const [isReanalyzing, setIsReanalyzing] = useState(false);
-  
-  const [role, setRole] = useState('');
-  const [challenges, setChallenges] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedConfig, setGeneratedConfig] = useState<CustomTestConfig | null>(null);
-  const [benchmark, setBenchmark] = useState<BenchmarkData>(DEFAULT_BENCHMARK);
-  const [isSaving, setIsSaving] = useState(false);
-  const [savedLink, setSavedLink] = useState('');
-  const [lastCopiedId, setLastCopiedId] = useState<string | null>(null);
-
-  const [isEditingBenchmark, setIsEditingBenchmark] = useState(false);
-
-  useEffect(() => {
-    if (view === 'dashboard') loadJobs();
-  }, [view]);
-
-  const loadJobs = async () => {
-    setIsLoadingJobs(true);
-    try {
-      const resp = await fetch(`${scriptUrl}?action=GET_JOBS&company=${encodeURIComponent(company)}`);
-      const data = await resp.json();
-      setJobs(Array.isArray(data) ? data : []);
-    } catch (e) { setJobs([]); }
-    finally { setIsLoadingJobs(false); }
-  };
-
-  const loadCandidates = async (jobId: string) => {
-    setView('manage');
-    setIsLoadingJobs(true);
-    try {
-      const configResp = await fetch(`${scriptUrl}?action=GET_JOB_CONFIG&jobId=${jobId}`);
-      const configData = await configResp.json();
-      const currentBenchmark = configData.benchmark || DEFAULT_BENCHMARK;
-      setBenchmark(currentBenchmark);
-
-      const resp = await fetch(`${scriptUrl}?action=GET_CANDIDATES&jobId=${jobId}`);
-      const data = await resp.json();
-      
-      setJobCandidates(Array.isArray(data) ? data : []);
-    } catch (e) { 
-      console.error(e); 
-      setJobCandidates([]);
-    } finally { 
-      setIsLoadingJobs(false); 
+export const generateCandidateProfile = async (results: TestResult[], candidateInfo?: CandidateInfo, benchmark?: BenchmarkData): Promise<string> => {
+  // Формируем детальное описание результатов для ИИ
+  const resultsText = results.map(r => {
+    let details = '';
+    
+    // Детальная расшифровка HEXACO для ИИ
+    if (r.sectionId === 'conscientiousness' && r.hexacoProfile) {
+      const hexacoLines = r.hexacoProfile.map(h => 
+        `   * ${HEXACO_RU[h.code] || h.code}: ${h.average.toFixed(1)} из 5`
+      ).join('\n');
+      details = `\n   ПОДРОБНЫЙ ПРОФИЛЬ ЛИЧНОСТИ (HEXACO):\n${hexacoLines}`;
     }
-  };
+    
+    // Детальная расшифровка Мотивации
+    else if (r.sectionId === 'motivation' && r.motivationProfile) {
+      const driverLines = r.motivationProfile.topDrivers.map((d, i) => 
+        `   * ${i+1}. ${d.name} (Ранг: ${d.score.toFixed(1)})`
+      ).join('\n');
+      details = `\n   КЛЮЧЕВЫЕ ДРАЙВЕРЫ:\n${driverLines}`;
+    }
+    
+    // Кейс
+    else if (r.sectionId === 'work_sample') {
+      details = `\n   ОТВЕТ НА ПРАКТИЧЕСКИЙ КЕЙС:\n   "${r.textAnswer || "Нет ответа"}"`;
+    }
 
-  const handleGenerate = async () => {
-    setIsGenerating(true); setGeneratedConfig(null);
-    try {
-      const config = await generateCustomQuestions(role, challenges);
-      if (config) setGeneratedConfig({ ...config, jobTitle: role, jobId: '', company: company }); 
-    } catch (e) { alert("Ошибка генерации"); }
-    finally { setIsGenerating(false); }
-  };
+    return `### РАЗДЕЛ ТЕСТА: ${r.title}\n- Общий результат: ${r.percentage.toFixed(0)}%${details}`;
+  }).join('\n\n');
 
-  const handleSave = async () => {
-    if (!generatedConfig) return;
-    setIsSaving(true);
-    const finalConfig = { ...generatedConfig, benchmark, company };
-    try {
-      const resp = await fetch(scriptUrl, { method: 'POST', body: JSON.stringify({ action: "SAVE_CONFIG", jobTitle: role, config: finalConfig, company }) });
-      const data = await resp.json();
-      if (data.status === 'success') { setSavedLink(`${baseUrl}?jobId=${data.jobId}`); loadJobs(); }
-    } catch (e) { alert("Ошибка сохранения"); }
-    finally { setIsSaving(false); }
-  };
+  let benchmarkText = "";
+  if (benchmark) {
+    benchmarkText = `
+    ЭТАЛОН ПРОФИЛЯ (BENCHMARK) ДЛЯ СРАВНЕНИЯ:
+    - Интеллект (IQ): ${benchmark.iq}/12
+    - Надежность (Reliability): ${benchmark.reliability}%
+    - Кейс-тест (SJT): ${benchmark.sjt}/8
+    - HEXACO (Целевые значения): ${JSON.stringify(benchmark.hexaco)}
+    Используй эти цифры, чтобы оценить, подходит ли кандидат.
+    `;
+  }
 
-  // --- EDITOR HANDLERS ---
-  const updateSjtQuestionText = (idx: number, text: string) => {
-    if (!generatedConfig) return;
-    const newQuestions = [...generatedConfig.sjtQuestions];
-    newQuestions[idx] = { ...newQuestions[idx], text };
-    setGeneratedConfig({ ...generatedConfig, sjtQuestions: newQuestions });
-  };
+  const prompt = `
+    КАНДИДАТ: ${candidateInfo?.name}
+    РОЛЬ: ${candidateInfo?.role}
+    
+    ${benchmarkText}
+    
+    =========================================
+    РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ:
+    =========================================
+    ${resultsText}
+    
+    ЗАДАЧА:
+    1. Напиши краткий аналитический отчет (Сильные стороны, Риски, Вывод).
+    2. Обязательно проанализируй личностный профиль (HEXACO), данные предоставлены выше. Не пиши, что данных нет.
+    3. В САМОМ КОНЦЕ ответа (на новой строке) вынеси финальный вердикт в формате:
+    VERDICT: [GREEN | YELLOW | RED] :: [Короткая фраза-вывод для заголовка]
+    
+    Критерии цвета:
+    - GREEN: Высокое соответствие эталону, нет критичных рисков.
+    - YELLOW: Есть сомнения, среднее соответствие или нужен контроль.
+    - RED: Низкие баллы, критичные риски (ложь, низкая надежность), полное несоответствие.
 
-  const updateSjtOption = (qIdx: number, oIdx: number, field: 'text' | 'value', value: string | number) => {
-    if (!generatedConfig) return;
-    const newQuestions = [...generatedConfig.sjtQuestions];
-    const newOptions = [...(newQuestions[qIdx].options || [])];
-    // @ts-ignore
-    newOptions[oIdx] = { ...newOptions[oIdx], [field]: value };
-    newQuestions[qIdx] = { ...newQuestions[qIdx], options: newOptions };
-    setGeneratedConfig({ ...generatedConfig, sjtQuestions: newQuestions });
-  };
+    ФОРМАТ ТЕЛА ОТЧЕТА:
+    Используй HTML теги <h3> для заголовков и <b> для жирного шрифта. Не используй markdown.
+  `;
 
-  const updateWorkSampleText = (text: string) => {
-    if (!generatedConfig) return;
-    setGeneratedConfig({ 
-      ...generatedConfig, 
-      workSampleQuestion: { ...generatedConfig.workSampleQuestion, text } 
-    });
-  };
-  // -----------------------
+  const systemPrompt = "Ты профессиональный HR-аналитик. Твой стиль: строгий, деловой. Внимательно читай все переданные данные. В конце обязательно добавляй строку VERDICT: ...";
 
-  const reanalyzeWithBenchmark = async () => {
-    if (!activeReport) return;
-    setIsReanalyzing(true);
-    try {
-      const mockResults = [
-        { sectionId: 'intelligence', title: 'IQ', percentage: (activeReport.iq/12)*100, rawScore: activeReport.iq },
-        { sectionId: 'conscientiousness', title: 'Надежность', percentage: activeReport.reliability, rawScore: activeReport.reliability },
-        { sectionId: 'sjt', title: 'Кейс-тест', percentage: (activeReport.sjtScore/8)*100, rawScore: activeReport.sjtScore },
-        { sectionId: 'motivation', title: 'Драйверы', percentage: 100, motivationProfile: { topDrivers: activeReport.drivers?.split(',').map((d: string) => ({name: d.trim()})) || [] } }
-      ] as any;
+  try {
+    let rawText = await invokeAIProxy(prompt, systemPrompt);
+    
+    // Очистка от случайных Markdown тегов
+    let cleanText = rawText
+      .replace(/```html/gi, '')
+      .replace(/```/g, '')
+      .replace(/^html\s*/i, '')
+      .trim();
+
+    // Парсинг Вердикта
+    const verdictRegex = /VERDICT:\s*(GREEN|YELLOW|RED)\s*::\s*(.*)/i;
+    const match = cleanText.match(verdictRegex);
+    
+    let finalHtml = cleanText;
+    
+    if (match) {
+      const status = match[1].toUpperCase() as keyof typeof ICONS;
+      const summary = match[2].trim();
       
-      const newReport = await generateCandidateProfile(mockResults, { name: activeReport.name, role: activeReport.role } as any, benchmark);
-      setActiveReport({ ...activeReport, aiReport: newReport });
-    } catch (e) { alert("Ошибка анализа"); }
-    finally { setIsReanalyzing(false); }
-  };
+      // Удаляем строку вердикта из текста, чтобы она не дублировалась
+      finalHtml = cleanText.replace(match[0], '').trim();
 
-  const calculateFit = (report: any) => {
-    const b = benchmark;
-    
-    const iqScore = 1 - Math.abs(report.iq - b.iq) / 12;
-    const relScore = 1 - Math.abs(report.reliability - b.reliability) / 100;
-    const sjtScore = 1 - Math.abs((report.sjtScore || 0) - b.sjt) / 8;
-    
-    const total = Math.round(((iqScore + relScore + sjtScore) / 3) * 100);
-    return Math.max(0, Math.min(100, total));
-  };
+      // Стили для карточек
+      const styles = {
+        GREEN: "bg-emerald-500/10 border-emerald-500/50 text-emerald-100",
+        YELLOW: "bg-amber-500/10 border-amber-500/50 text-amber-100",
+        RED: "bg-rose-500/10 border-rose-500/50 text-rose-100"
+      };
 
-  const copyToClipboard = (link: string, id: string) => {
-    navigator.clipboard.writeText(link);
-    setLastCopiedId(id);
-    setTimeout(() => setLastCopiedId(null), 2000);
-  };
+      const titles = {
+        GREEN: "РЕКОМЕНДОВАН К НАЙМУ",
+        YELLOW: "РЕКОМЕНДОВАН С ОГОВОРКАМИ",
+        RED: "НЕ РЕКОМЕНДОВАН"
+      };
 
-  const getIqLabel = (score: number) => {
-    if (score >= 10) return { label: "Высокий потенциал", color: "text-purple-400" };
-    if (score >= 8) return { label: "Выше среднего", color: "text-green-400" };
-    if (score >= 5) return { label: "Средний уровень", color: "text-blue-400" };
-    return { label: "Базовый уровень", color: "text-slate-400" };
-  };
-
-  const getRelLabel = (score: number) => {
-    if (score >= 75) return { label: "Высокая надежность", color: "text-green-400" };
-    if (score >= 50) return { label: "Средняя надежность", color: "text-blue-400" };
-    return { label: "Требует контроля", color: "text-orange-400" };
-  };
-
-  const BenchmarkEditor = ({ data, onChange }: { data: BenchmarkData, onChange: (d: BenchmarkData) => void }) => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-      <div className="bg-slate-950 p-6 rounded-3xl border border-slate-800">
-        <label className="text-[10px] text-slate-500 font-black uppercase mb-4 block flex justify-between">
-          <span>Целевой IQ</span>
-          <span className="text-blue-400 font-black">{data.iq} / 12</span>
-        </label>
-        <input type="range" min="1" max="12" value={data.iq} onChange={e => onChange({...data, iq: parseInt(e.target.value)})} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-      </div>
-      <div className="bg-slate-950 p-6 rounded-3xl border border-slate-800">
-        <label className="text-[10px] text-slate-500 font-black uppercase mb-4 block flex justify-between">
-          <span>Целевая Надежность</span>
-          <span className="text-blue-400 font-black">{data.reliability}%</span>
-        </label>
-        <input type="range" min="0" max="100" value={data.reliability} onChange={e => onChange({...data, reliability: parseInt(e.target.value)})} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-      </div>
-      <div className="bg-slate-950 p-6 rounded-3xl border border-slate-800">
-        <label className="text-[10px] text-slate-500 font-black uppercase mb-4 block flex justify-between">
-          <span>Целевой Кейс-балл</span>
-          <span className="text-blue-400 font-black">{data.sjt} / 8</span>
-        </label>
-        <input type="range" min="0" max="8" value={data.sjt} onChange={e => onChange({...data, sjt: parseInt(e.target.value)})} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="max-w-7xl mx-auto bg-slate-950 min-h-screen p-6 text-slate-100">
-      {/* ОТЧЕТ (МОДАЛКА) */}
-      {activeReport && (
-        <div className="fixed inset-0 z-[10000] bg-slate-950/98 backdrop-blur-2xl p-4 sm:p-10 lg:p-16 overflow-y-auto custom-scrollbar">
-           <div className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-[3rem] p-8 lg:p-14 shadow-3xl animate-in zoom-in-95 duration-500 relative">
-              
-              <button onClick={() => setActiveReport(null)} className="absolute top-6 right-6 z-10 bg-slate-800 hover:bg-slate-700 p-4 rounded-full text-white transition-all active:scale-95 shadow-xl">
-                 <ArrowLeft size={24}/>
-              </button>
-
-              {/* Увеличен отступ сверху до mt-20 */}
-              <div className="flex flex-col md:flex-row justify-between items-start mb-14 gap-8 mt-20">
-                 <div>
-                   <div className="flex items-center gap-4 mb-3">
-                     <h2 className="text-5xl font-black text-white tracking-tighter">{activeReport.name}</h2>
-                     <div className="bg-blue-600/20 border border-blue-500/30 px-6 py-2 rounded-full text-blue-400 text-xs font-black tracking-widest uppercase flex items-center gap-2">
-                        <Target size={16}/> СООТВЕТСТВИЕ: {calculateFit(activeReport)}%
-                     </div>
-                   </div>
-                   <p className="text-slate-500 font-black text-lg uppercase tracking-widest flex items-center gap-2">
-                     <User size={20} className="text-blue-500"/> {activeReport.role}
-                   </p>
-                 </div>
-                 <div className="flex gap-4">
-                    <button onClick={reanalyzeWithBenchmark} disabled={isReanalyzing} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 transition-all">
-                       {isReanalyzing ? <Loader2 className="animate-spin" size={18}/> : <RefreshCw size={18}/>} Пересчитать ИИ
-                    </button>
-                    <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all">Печать PDF</button>
-                 </div>
-              </div>
-
-              {/* СЕТКА МЕТРИК */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-14">
-                 <div className="bg-slate-950/50 p-8 rounded-[2rem] border border-slate-800 shadow-inner group">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-4 group-hover:text-blue-400 transition-colors">Интеллект (IQ)</div>
-                    <div className="text-4xl font-black text-white">{activeReport.iq} <span className="text-slate-700 text-xl font-bold">/ 12</span></div>
-                    <div className="mt-3 text-[10px] text-slate-600 font-bold uppercase">Общий когнитивный балл</div>
-                 </div>
-                 <div className="bg-slate-950/50 p-8 rounded-[2rem] border border-slate-800 shadow-inner group">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-4 group-hover:text-green-400 transition-colors">Надежность</div>
-                    <div className="text-4xl font-black text-white">{activeReport.reliability}%</div>
-                    <div className="mt-3 text-[10px] text-slate-600 font-bold uppercase">Уровень добросовестности</div>
-                 </div>
-                 <div className="bg-slate-950/50 p-8 rounded-[2rem] border border-slate-800 shadow-inner group">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-4 group-hover:text-purple-400 transition-colors">Кейс-тест (SJT)</div>
-                    <div className="text-4xl font-black text-purple-400">{activeReport.sjtScore || 0} <span className="text-slate-700 text-xl font-bold">/ 8</span></div>
-                    <div className="mt-3 text-[10px] text-slate-600 font-bold uppercase">Ситуационное суждение</div>
-                 </div>
-                 <div className="bg-slate-950/50 p-8 rounded-[2rem] border border-slate-800 shadow-inner group">
-                    <div className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-4 group-hover:text-orange-400 transition-colors">Топ Драйверы</div>
-                    <div className="text-xs font-black text-slate-200 line-clamp-2 leading-relaxed">{activeReport.drivers || "Не определено"}</div>
-                    <div className="mt-3 text-[10px] text-slate-600 font-bold uppercase">Ключевая мотивация</div>
-                 </div>
-              </div>
-
-              {/* НОВЫЙ БЛОК: РАСШИФРОВКА МЕТРИК */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-14">
-                 <div className="bg-slate-950/80 border border-slate-800 p-8 rounded-[2rem] relative overflow-hidden group hover:border-blue-500/30 transition-all">
-                    <div className="absolute top-[-20px] right-[-20px] p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Brain size={120} /></div>
-                    <h4 className="text-slate-500 font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <Info size={12}/> Когнитивный Ресурс
-                    </h4>
-                    <div className="mb-4">
-                      <span className={`text-xl font-black ${getIqLabel(activeReport.iq).color}`}>
-                        {getIqLabel(activeReport.iq).label}
-                      </span>
-                    </div>
-                    <p className="text-slate-400 text-xs leading-relaxed font-bold">
-                      Отражает скорость обучения и способность решать новые задачи. Критично для ролей с высокой неопределенностью.
-                    </p>
-                 </div>
-
-                 <div className="bg-slate-950/80 border border-slate-800 p-8 rounded-[2rem] relative overflow-hidden group hover:border-green-500/30 transition-all">
-                    <div className="absolute top-[-20px] right-[-20px] p-8 opacity-5 group-hover:opacity-10 transition-opacity"><ShieldCheck size={120} /></div>
-                    <h4 className="text-slate-500 font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <Info size={12}/> Фактор Надежности
-                    </h4>
-                    <div className="mb-4">
-                      <span className={`text-xl font-black ${getRelLabel(activeReport.reliability).color}`}>
-                        {getRelLabel(activeReport.reliability).label}
-                      </span>
-                    </div>
-                    <p className="text-slate-400 text-xs leading-relaxed font-bold">
-                      Прогноз добросовестности: готовность соблюдать правила, сроки и договоренности без микроменеджмента.
-                    </p>
-                 </div>
-
-                 <div className="bg-slate-950/80 border border-slate-800 p-8 rounded-[2rem] relative overflow-hidden group hover:border-purple-500/30 transition-all">
-                    <div className="absolute top-[-20px] right-[-20px] p-8 opacity-5 group-hover:opacity-10 transition-opacity"><MessageSquare size={120} /></div>
-                    <h4 className="text-slate-500 font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <Info size={12}/> Социальный Интеллект
-                    </h4>
-                    <div className="mb-4">
-                       <span className="text-xl font-black text-white">
-                         {(activeReport.sjtScore || 0) >= 6 ? 'Стратег' : (activeReport.sjtScore || 0) >= 4 ? 'Практик' : 'Исполнитель'}
-                       </span>
-                    </div>
-                    <p className="text-slate-400 text-xs leading-relaxed font-bold">
-                      Умение выбирать адекватную стратегию поведения в сложных рабочих ситуациях и конфликтах.
-                    </p>
-                 </div>
-              </div>
-
-              {/* GAP ANALYSIS */}
-              {benchmark && (
-                <div className="mb-14 bg-indigo-600/5 border border-indigo-500/10 rounded-[2.5rem] p-10">
-                   <h3 className="text-indigo-400 font-black text-sm uppercase tracking-widest mb-10 flex items-center gap-3">
-                     <Zap size={20}/> Анализ разрывов с эталоном (Gap Analysis)
-                   </h3>
-                   <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                      {[
-                        { label: 'Интеллект', current: activeReport.iq, target: benchmark.iq, max: 12 },
-                        { label: 'Надежность', current: activeReport.reliability, target: benchmark.reliability, max: 100 },
-                        { label: 'Кейс-тест', current: activeReport.sjtScore || 0, target: benchmark.sjt, max: 8 },
-                      ].map(m => {
-                        const diff = m.current - m.target;
-                        return (
-                          <div key={m.label}>
-                             <div className="flex justify-between text-[11px] font-black uppercase mb-4 tracking-wider">
-                                <span className="text-slate-500">{m.label}</span>
-                                <span className={diff >= 0 ? 'text-green-400' : 'text-red-400'}>
-                                  {diff > 0 ? `+${diff}` : diff} {diff === 0 ? 'ИДЕАЛЬНО' : ''}
-                                </span>
-                             </div>
-                             <div className="h-3 bg-slate-950 rounded-full relative overflow-hidden border border-slate-800">
-                                <div className={`h-full absolute left-0 transition-all duration-1000 ${m.current >= m.target ? 'bg-blue-500' : 'bg-red-500/50'}`} style={{ width: `${(m.current/m.max)*100}%` }} />
-                                <div className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_10px_white] z-10" style={{ left: `${(m.target/m.max)*100}%` }} />
-                             </div>
-                          </div>
-                        );
-                      })}
-                   </div>
-                </div>
-              )}
-
-              {/* AI REPORT */}
-              <div className="space-y-12">
-                 <section>
-                    <h3 className="text-white font-black mb-8 flex items-center gap-3 text-sm uppercase tracking-[0.3em] border-l-4 border-blue-500 pl-6">
-                      Глубокий аналитический отчет
-                    </h3>
-                    <div className="bg-slate-950 p-12 rounded-[3rem] border border-slate-800 shadow-2xl relative overflow-hidden">
-                       <div className="prose prose-invert max-w-none 
-                            prose-h3:text-blue-400 prose-h3:text-3xl prose-h3:font-black prose-h3:mt-16 prose-h3:mb-8 prose-h3:uppercase prose-h3:tracking-widest first:prose-h3:mt-0
-                            prose-b:text-white prose-b:font-extrabold
-                            prose-p:text-slate-400 prose-p:text-xl prose-p:leading-[1.9] prose-p:mb-12 prose-p:font-medium" 
-                            style={{ color: '#cbd5e1' }} 
-                            dangerouslySetInnerHTML={{ __html: activeReport.aiReport }} />
-                    </div>
-                 </section>
-
-                 {/* КЕЙС-ОТВЕТ */}
-                 <section className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-10">
-                    <h3 className="text-slate-500 font-black text-xs uppercase tracking-widest mb-6">Ответ на практическое задание</h3>
-                    <div className="text-slate-200 text-lg leading-relaxed italic bg-slate-950 p-8 rounded-2xl border border-slate-800">
-                       {activeReport.workAnswer || "Кандидат не предоставил развернутый ответ."}
-                    </div>
-                 </section>
-              </div>
-
-              <div className="mt-16 text-center">
-                 <button onClick={() => setActiveReport(null)} className="text-slate-600 hover:text-white font-black uppercase text-xs tracking-widest transition-all">Вернуться к списку</button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* DASHBOARD & OTHER VIEWS */}
-      <div className="flex justify-between items-center mb-10 pb-6 border-b border-slate-800">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-blue-600/20 rounded-2xl border border-blue-500/30"><BarChart className="text-blue-400" size={32} /></div>
-          <div><h1 className="text-3xl font-black text-white tracking-tight">HR-КАБИНЕТ</h1><p className="text-slate-500 text-xs font-bold uppercase tracking-widest">{company}</p></div>
-        </div>
-        <button onClick={onExit} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-sm font-bold"><LogOut size={18} /> ВЫЙТИ</button>
-      </div>
-
-      {view === 'dashboard' && (
-        <div className="space-y-8 animate-in fade-in duration-500">
-          <div className="flex justify-between items-end">
-             <h2 className="text-xl font-bold flex items-center gap-2"><List size={20} className="text-blue-400"/> Активные вакансии</h2>
-             <button onClick={() => setView('create')} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-xl shadow-blue-900/20 transition-all active:scale-95"><Plus size={20}/> Создать вакансию</button>
+      // Генерируем красивый блок
+      const verdictBlock = `
+        <div class="mb-10 p-6 rounded-2xl border-l-4 ${styles[status]} flex items-start gap-5 shadow-lg">
+          <div class="mt-1 shrink-0 p-3 bg-slate-950/30 rounded-full border border-white/5">
+            ${ICONS[status]}
           </div>
-          {isLoadingJobs ? <div className="text-center py-20 animate-pulse text-slate-500 uppercase font-black tracking-widest">Загрузка данных...</div> : jobs.length === 0 ? <div className="bg-slate-900 p-20 rounded-3xl text-center text-slate-500 border border-slate-800">Список вакансий пуст.</div> : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {jobs.map(job => (
-                <div key={job.jobId} className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 group hover:border-blue-500/30 transition-all shadow-xl">
-                  <h3 className="text-xl font-black text-white mb-4 line-clamp-1">{job.jobTitle}</h3>
-                  <div className="flex gap-2 mb-8">
-                     <span className="bg-slate-800 px-3 py-1 rounded-lg text-[10px] font-bold text-slate-500 uppercase">{new Date(job.dateCreated).toLocaleDateString()}</span>
-                     {job.hasBenchmark && <span className="bg-blue-500/10 text-blue-400 px-3 py-1 rounded-lg text-[10px] font-bold uppercase">Эталон задан</span>}
-                  </div>
-                  <div className="space-y-3">
-                    <button onClick={() => loadCandidates(job.jobId)} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition-all">КАНДИДАТЫ <ChevronRight size={14}/></button>
-                    <button onClick={() => copyToClipboard(`${baseUrl}?jobId=${job.jobId}`, job.jobId)} className={`w-full py-3 rounded-xl text-[10px] font-black tracking-widest transition-all ${lastCopiedId === job.jobId ? 'bg-green-600/10 text-green-400 border border-green-500/20' : 'bg-slate-950 text-slate-500 hover:text-white border border-slate-800'}`}>{lastCopiedId === job.jobId ? 'ССЫЛКА СКОПИРОВАНА' : 'СКОПИРОВАТЬ ССЫЛКУ'}</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {view === 'manage' && (
-        <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
-           <div className="flex justify-between items-center">
-              <button onClick={() => setView('dashboard')} className="text-slate-500 hover:text-white flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"><ArrowLeft size={16}/> К списку вакансий</button>
-              <button onClick={() => setIsEditingBenchmark(!isEditingBenchmark)} className={`flex items-center gap-2 px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${isEditingBenchmark ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
-                <SlidersHorizontal size={14}/> {isEditingBenchmark ? 'Закрыть эталон' : 'Настроить эталон'}
-              </button>
-           </div>
-
-           {isEditingBenchmark && (
-             <div className="bg-slate-900 border border-indigo-500/20 rounded-[2.5rem] p-10 animate-in zoom-in-95 duration-300 shadow-2xl">
-                <h3 className="text-white font-black text-sm uppercase tracking-widest mb-8 flex items-center gap-3">
-                  <Target size={20} className="text-indigo-500"/> Настройка идеального кандидата
-                </h3>
-                <BenchmarkEditor data={benchmark} onChange={setBenchmark} />
-                <div className="mt-10 pt-8 border-t border-slate-800 flex justify-end">
-                   <button onClick={() => setIsEditingBenchmark(false)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all active:scale-95">Применить эталон</button>
-                </div>
-             </div>
-           )}
-
-           <div className="bg-slate-900 border border-slate-800 rounded-[3rem] p-10 lg:p-14 shadow-2xl">
-              <h2 className="text-3xl font-black text-white mb-12">
-                Список откликов <span className="text-blue-500 ml-2">{jobCandidates.length}</span>
-              </h2>
-              {isLoadingJobs ? <div className="text-center py-20 animate-pulse text-slate-500 font-black uppercase">Загрузка...</div> : jobCandidates.length === 0 ? <div className="text-center py-24 text-slate-600 font-bold border-2 border-dashed border-slate-800 rounded-[2rem] uppercase tracking-widest">Кандидатов пока нет</div> : (
-                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="border-b border-slate-800 text-slate-600 text-[11px] font-black uppercase tracking-[0.2em]">
-                          <th className="pb-8 px-6">ФИО Кандидата</th>
-                          <th className="pb-8 px-6 text-center">IQ</th>
-                          <th className="pb-8 px-6 text-center">Надежность</th>
-                          <th className="pb-8 px-6 text-center">Соответствие</th>
-                          <th className="pb-8 px-6 text-right">Отчет</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {jobCandidates.map((c, idx) => (
-                          <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-all group cursor-pointer" onClick={() => setActiveReport(c)}>
-                            <td className="py-8 px-6">
-                               <div className="text-white font-black text-xl group-hover:text-blue-400 transition-colors">{c.name}</div>
-                               <div className="text-slate-600 text-[10px] font-bold uppercase mt-2 tracking-widest">{new Date(c.date).toLocaleDateString()}</div>
-                            </td>
-                            <td className="py-8 px-6 text-center">
-                               <div className="font-black text-white text-2xl">{c.iq}</div>
-                               <div className="text-[9px] text-slate-700 uppercase font-black">из 12</div>
-                            </td>
-                            <td className="py-8 px-6 text-center">
-                               <div className={`font-black text-2xl ${c.reliability >= 75 ? 'text-green-400' : 'text-blue-400'}`}>{c.reliability}%</div>
-                            </td>
-                            <td className="py-8 px-6 text-center">
-                               <div className={`inline-block px-5 py-2 rounded-full font-black text-xs tracking-widest uppercase ${calculateFit(c) >= 75 ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
-                                 {calculateFit(c)}%
-                               </div>
-                            </td>
-                            <td className="py-8 px-6 text-right">
-                               <button onClick={(e) => { e.stopPropagation(); setActiveReport(c); }} className="p-4 bg-slate-950 hover:bg-blue-600 text-slate-500 hover:text-white rounded-2xl transition-all border border-slate-800 shadow-xl"><FileText size={24}/></button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                 </div>
-              )}
-           </div>
-        </div>
-      )}
-
-      {/* CREATE VIEW */}
-      {view === 'create' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 animate-in fade-in duration-500">
-           <div className="lg:col-span-4 space-y-6">
-            <button onClick={() => setView('dashboard')} className="text-slate-500 hover:text-white flex items-center gap-2 text-xs font-black uppercase tracking-widest mb-4 transition-all"><ArrowLeft size={16}/> Отмена</button>
-            <div className="bg-slate-900 p-8 rounded-[2rem] border border-slate-800 shadow-2xl">
-              <h2 className="text-2xl font-black mb-8 text-white">Новая вакансия</h2>
-              <div className="space-y-6">
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase block mb-3 tracking-widest">Должность</label>
-                  <input value={role} onChange={e => setRole(e.target.value)} placeholder="Напр: Тимлид отдела продаж" className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 focus:border-blue-500 outline-none text-white font-bold transition-all" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 uppercase block mb-3 tracking-widest">Задачи и боли бизнеса</label>
-                  <textarea value={challenges} onChange={e => setChallenges(e.target.value)} placeholder="Опишите, какие проблемы должен решить кандидат..." className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 h-48 focus:border-blue-500 outline-none text-sm text-slate-400 resize-none transition-all leading-relaxed" />
-                </div>
-                <button onClick={handleGenerate} disabled={isGenerating || !role} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-blue-900/20 active:scale-95 disabled:opacity-50">
-                  {isGenerating ? <Loader2 className="animate-spin" /> : <Wand2 size={24} />} 
-                  СФОРМИРОВАТЬ ТЕСТ
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-8 space-y-8">
-             <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-slate-800 shadow-2xl">
-                <div className="flex items-center gap-3 mb-10">
-                   <div className="p-3 bg-blue-600/20 rounded-2xl text-blue-400"><Target size={28}/></div>
-                   <div>
-                      <h2 className="text-2xl font-black text-white">Целевой профиль (Бенчмарк)</h2>
-                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">Определите параметры идеального сотрудника</p>
-                   </div>
-                </div>
-                <BenchmarkEditor data={benchmark} onChange={setBenchmark} />
-                
-                <div className="mt-12 pt-10 border-t border-slate-800">
-                  <h3 className="text-xl font-black mb-6 text-white flex items-center gap-3"><Settings size={20} className="text-blue-500"/> Структура теста</h3>
-                  {!generatedConfig ? (
-                    <div className="py-24 text-center text-slate-700 font-black uppercase tracking-[0.3em] animate-pulse border-2 border-dashed border-slate-800 rounded-[2.5rem]">Ожидание ввода данных...</div>
-                  ) : (
-                    <div className="space-y-10 animate-in fade-in duration-500">
-                      
-                      {/* SJT EDITOR */}
-                      <div className="space-y-8">
-                        <div className="flex items-center justify-between">
-                           <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2"><Briefcase size={12}/> Ситуационные кейсы (SJT)</div>
-                        </div>
-                        
-                        {generatedConfig.sjtQuestions.map((q, i) => (
-                          <div key={i} className="bg-slate-950 p-6 rounded-[2rem] border border-slate-800 group hover:border-blue-500/20 transition-all">
-                             {/* Question Text Editor */}
-                             <div className="mb-6">
-                                <label className="text-[9px] text-slate-600 font-black uppercase mb-2 block">Ситуация #{i+1}</label>
-                                <textarea 
-                                  value={q.text} 
-                                  onChange={(e) => updateSjtQuestionText(i, e.target.value)}
-                                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none resize-none h-24 leading-relaxed font-medium"
-                                />
-                             </div>
-
-                             {/* Options Editor */}
-                             <div className="space-y-3">
-                                {q.options?.map((opt, optIdx) => (
-                                  <div key={optIdx} className="flex gap-3 items-center">
-                                     <div className="grow">
-                                        <input 
-                                          value={opt.text}
-                                          onChange={(e) => updateSjtOption(i, optIdx, 'text', e.target.value)}
-                                          className="w-full bg-slate-900/50 border border-slate-800 rounded-lg px-4 py-3 text-xs text-slate-300 focus:border-blue-500 outline-none"
-                                          placeholder="Вариант ответа..."
-                                        />
-                                     </div>
-                                     <div className="shrink-0 w-24">
-                                        <div className="relative">
-                                          <input 
-                                            type="number"
-                                            min="0" max="2"
-                                            value={opt.value}
-                                            onChange={(e) => updateSjtOption(i, optIdx, 'value', parseInt(e.target.value))}
-                                            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-3 pr-8 py-3 text-xs text-center text-blue-400 font-black outline-none focus:border-blue-500"
-                                          />
-                                          <span className="absolute right-3 top-3 text-[10px] text-slate-600 font-bold">PTS</span>
-                                        </div>
-                                     </div>
-                                  </div>
-                                ))}
-                             </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* WORK SAMPLE EDITOR */}
-                      <div className="pt-8 border-t border-slate-800">
-                         <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2 mb-6"><PenTool size={12}/> Практическое задание (Work Sample)</div>
-                         <div className="bg-slate-950 p-6 rounded-[2rem] border border-slate-800">
-                            <label className="text-[9px] text-slate-600 font-black uppercase mb-2 block">Текст задания для кандидата</label>
-                            <textarea 
-                               value={generatedConfig.workSampleQuestion.text} 
-                               onChange={(e) => updateWorkSampleText(e.target.value)}
-                               className="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm text-white focus:border-blue-500 outline-none resize-none h-40 leading-relaxed font-medium"
-                               placeholder="Опишите интересную практическую задачу..."
-                            />
-                         </div>
-                      </div>
-
-                      <div className="mt-12 pt-8">
-                        {!savedLink ? (
-                          <button onClick={handleSave} disabled={isSaving} className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-6 rounded-[2rem] flex items-center justify-center gap-3 transition-all shadow-2xl shadow-green-900/20 active:scale-95">
-                            {isSaving ? <Loader2 className="animate-spin" /> : <Save size={28} />} 
-                            ОПУБЛИКОВАТЬ ВАКАНСИЮ
-                          </button>
-                        ) : (
-                          <div className="bg-blue-600/10 border border-blue-500/30 p-10 rounded-[2.5rem] text-center animate-in zoom-in-95 duration-500">
-                            <div className="inline-flex p-4 bg-green-500/20 rounded-full text-green-400 mb-6"><CheckCircle size={32}/></div>
-                            <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tighter">Опубликовано с эталоном!</h3>
-                            <p className="text-slate-500 mb-8 font-bold">Ссылка для кандидатов готова к рассылке:</p>
-                            <div className="flex gap-3 mb-8">
-                               <input readOnly value={savedLink} className="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-5 py-4 text-xs font-mono text-blue-400 outline-none" />
-                               <button onClick={() => copyToClipboard(savedLink, 'new')} className="bg-slate-800 p-4 rounded-xl hover:bg-slate-700 transition-all text-white"><Copy size={24}/></button>
-                            </div>
-                            <button onClick={() => setView('dashboard')} className="w-full bg-slate-800 text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-700 transition-all">ВЕРНУТЬСЯ В КАБИНЕТ</button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-             </div>
+          <div>
+            <div class="text-xs font-black tracking-widest uppercase opacity-70 mb-1">Финальное решение ИИ</div>
+            <h3 class="text-2xl font-black m-0 p-0 leading-none mb-3 tracking-tight">${titles[status]}</h3>
+            <p class="text-base font-medium opacity-90 m-0 leading-relaxed text-slate-300">
+              ${summary}
+            </p>
           </div>
         </div>
-      )}
-    </div>
-  );
+      `;
+
+      // Вставляем блок в самое начало отчета
+      finalHtml = verdictBlock + finalHtml;
+    }
+
+    return finalHtml;
+
+  } catch (e: any) {
+    return `<div style="color: red; padding: 20px; border: 1px solid red; border-radius: 10px;">
+      <h3>Ошибка генерации</h3>
+      <p>${e.message}</p>
+      <p>Проверьте консоль браузера и настройки SCRIPT_URL.</p>
+    </div>`;
+  }
 };
 
-export default HrBuilder;
+export const generateCustomQuestions = async (jobRole: string, challenges: string): Promise<CustomTestConfig | null> => {
+  const prompt = `
+    Создай тест для вакансии "${jobRole}".
+    Контекст и проблемы: "${challenges}".
+
+    ТРЕБОВАНИЯ К ПРАКТИЧЕСКОМУ ЗАДАНИЮ (Work Sample):
+    Оно должно быть СЛОЖНЫМ, ОБЪЕМНЫМ и СИТУАТИВНЫМ.
+    ЗАПРЕЩЕНО создавать простые вопросы типа "Что такое Х?" или "Опишите рецепт/алгоритм".
+    Создай "Business Case" или "Real-world Problem Scenario":
+    1. Опиши конкретную сложную ситуацию (конфликт, нехватка ресурсов, авария, сложный клиент).
+    2. Добавь специфические вводные данные и ограничения.
+    3. Попроси кандидата предложить пошаговое стратегическое решение, а не просто теоретический ответ.
+    
+    Мне нужен JSON объект с такой структурой:
+    {
+      "sjtQuestions": [
+        {
+          "id": "sjt_1",
+          "text": "Описание ситуации (SJT)...",
+          "type": "scenario",
+          "options": [
+             {"id": "o1", "text": "Вариант действия 1", "value": 0},
+             {"id": "o2", "text": "Вариант действия 2", "value": 2},
+             {"id": "o3", "text": "Вариант действия 3", "value": 1}
+          ]
+        },
+        ... (всего 4 вопроса)
+      ],
+      "workSampleQuestion": {
+        "id": "work_1",
+        "text": "Текст сложного практического кейса...",
+        "type": "text"
+      }
+    }
+    
+    Верни ТОЛЬКО валидный JSON. Без "json" и без лишних слов.
+  `;
+
+  const systemPrompt = "Ты Senior HR-методолог. Ты создаешь сложные кейс-тесты для проверки реальных навыков (hard & soft skills). Ты не пишешь ничего кроме JSON.";
+
+  try {
+    let text = await invokeAIProxy(prompt, systemPrompt);
+    
+    // Очистка от маркдауна, если модель все же его добавила
+    // Используем new RegExp для избежания проблем с парсингом бэктиков в литералах
+    text = text.replace(new RegExp('```json', 'g'), '').replace(new RegExp('```', 'g'), '').trim();
+    
+    // Попытка найти JSON, если есть лишний текст
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        text = jsonMatch[0];
+    }
+    
+    const data = JSON.parse(text);
+
+    // Принудительное выставление типов для UI
+    const sjtQuestions = data.sjtQuestions.map((q: any) => ({
+      ...q,
+      type: 'scenario'
+    }));
+    
+    const workSampleQuestion = {
+      ...data.workSampleQuestion,
+      type: 'text'
+    };
+
+    return {
+      jobId: "",
+      jobTitle: jobRole,
+      company: "",
+      sjtQuestions: sjtQuestions,
+      workSampleQuestion: workSampleQuestion
+    };
+  } catch (e) {
+    console.error("JSON Gen Error:", e);
+    alert("Ошибка генерации теста. ИИ вернул некорректные данные или произошла ошибка сети.");
+    return null;
+  }
+};
